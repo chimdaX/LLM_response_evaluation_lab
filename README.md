@@ -1,4 +1,4 @@
-# AI Response Evaluation Lab
+# LLM Response Evaluation Lab
 
 A reproducible, human-first framework for evaluating AI-generated answers: rubric-based scoring,
 pairwise comparison, error classification, and traceable reports.
