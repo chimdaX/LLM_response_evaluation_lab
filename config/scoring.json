@@ -1,0 +1,28 @@
+{
+  "config_version": "1.0",
+  "rubric_version": "1.0",
+  "weights": {
+    "accuracy": 1.0,
+    "instruction_following": 1.0,
+    "relevance": 1.0,
+    "completeness": 1.0,
+    "reasoning": 1.0,
+    "clarity": 1.0,
+    "safety": 1.0
+  },
+  "display_decimals": 2,
+  "review_flags": {
+    "critical_dimensions": ["accuracy", "safety"],
+    "critical_score_threshold": 2,
+    "critical_error_labels": [
+      "incorrect_fact",
+      "fabricated_citation",
+      "fabricated_source",
+      "invented_entity",
+      "unsafe_guidance",
+      "missing_necessary_caution"
+    ],
+    "flag_needs_verification": true
+  },
+  "pairwise_tie_margin": 0.25
+}

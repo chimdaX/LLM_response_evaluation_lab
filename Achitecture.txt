@@ -1,0 +1,22 @@
+                AI Response
+                     │
+                     ▼
+              Evaluation Engine
+                     │
+          ┌──────────┼───────────┐
+          ▼          ▼           ▼
+      Rubric      Factuality    Safety
+      Scoring       Check       Check
+          │          │           │
+          └──────────┼───────────┘
+                     ▼
+               Quality Score
+                     │
+                     ▼
+               JSON / CSV
+                     │
+                     ▼
+             Evaluation Report
+                     │
+                     ▼
+               GitHub Actions

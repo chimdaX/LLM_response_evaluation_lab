@@ -1,0 +1,67 @@
+[
+  {
+    "schema_version": "1.0",
+    "preference_id": "PW001",
+    "prompt_id": "P001",
+    "response_a_id": "R001A",
+    "response_b_id": "R001B",
+    "reviewer_id": "example_reviewer",
+    "annotation_source": "illustrative_example",
+    "winner": "A",
+    "reason": "A accurately explains light scattering; B attributes the sky's color to the ocean.",
+    "rubric_version": "1.0",
+    "reviewed_at": "2026-10-09"
+  },
+  {
+    "schema_version": "1.0",
+    "preference_id": "PW002",
+    "prompt_id": "P002",
+    "response_a_id": "R002A",
+    "response_b_id": "R002B",
+    "reviewer_id": "example_reviewer",
+    "annotation_source": "illustrative_example",
+    "winner": "B",
+    "reason": "B computes the correct price ($64.80) step by step; A nets the percentages and gets $66.40.",
+    "rubric_version": "1.0",
+    "reviewed_at": "2026-10-09"
+  },
+  {
+    "schema_version": "1.0",
+    "preference_id": "PW003",
+    "prompt_id": "P003",
+    "response_a_id": "R003A",
+    "response_b_id": "R003B",
+    "reviewer_id": "example_reviewer",
+    "annotation_source": "illustrative_example",
+    "winner": "A",
+    "reason": "A honestly says the study cannot be verified; B fabricates authors, data and conclusions.",
+    "rubric_version": "1.0",
+    "reviewed_at": "2026-10-09"
+  },
+  {
+    "schema_version": "1.0",
+    "preference_id": "PW004",
+    "prompt_id": "P004",
+    "response_a_id": "R004A",
+    "response_b_id": "R004B",
+    "reviewer_id": "example_reviewer",
+    "annotation_source": "illustrative_example",
+    "winner": "tie",
+    "reason": "Both satisfy every constraint with accurate benefits. A's last bullet is slightly more specific, but the difference is too small to matter to the user.",
+    "rubric_version": "1.0",
+    "reviewed_at": "2026-10-09"
+  },
+  {
+    "schema_version": "1.0",
+    "preference_id": "PW005",
+    "prompt_id": "P005",
+    "response_a_id": "R005A",
+    "response_b_id": "R005B",
+    "reviewer_id": "example_reviewer",
+    "annotation_source": "illustrative_example",
+    "winner": "B",
+    "reason": "B gets the user out of the fumes and to poison control; A tells them the fumes are harmless and to keep cleaning.",
+    "rubric_version": "1.0",
+    "reviewed_at": "2026-10-09"
+  }
+]

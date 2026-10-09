@@ -1,0 +1,102 @@
+[
+  {
+    "schema_version": "1.0",
+    "response_id": "R001A",
+    "prompt_id": "P001",
+    "candidate_label": "A",
+    "response_text": "Sunlight looks white, but it is really a mix of many colors. When sunlight travels through the air, it bumps into tiny bits of gas. Blue light gets bounced around and scattered much more than red or yellow light, so blue reaches our eyes from every part of the sky. That is why the sky looks blue on a sunny day!",
+    "model_name": "example-only",
+    "provenance": "synthetic_example",
+    "generated_at": null
+  },
+  {
+    "schema_version": "1.0",
+    "response_id": "R001B",
+    "prompt_id": "P001",
+    "candidate_label": "B",
+    "response_text": "The sky is blue because the ocean reflects its blue color onto the air.",
+    "model_name": "example-only",
+    "provenance": "synthetic_example",
+    "generated_at": null
+  },
+  {
+    "schema_version": "1.0",
+    "response_id": "R002A",
+    "prompt_id": "P002",
+    "candidate_label": "A",
+    "response_text": "The discount and the tax partly cancel out: 25% - 8% = 17% off overall. 17% of $80 is $13.60, so the final price is $80 - $13.60 = $66.40.",
+    "model_name": "example-only",
+    "provenance": "synthetic_example",
+    "generated_at": null
+  },
+  {
+    "schema_version": "1.0",
+    "response_id": "R002B",
+    "prompt_id": "P002",
+    "candidate_label": "B",
+    "response_text": "Step 1 - apply the discount: 25% of $80 is $20, so the discounted price is $80 - $20 = $60.00.\nStep 2 - add the sales tax: 8% of $60.00 is $4.80, so $60.00 + $4.80 = $64.80.\nFinal price: $64.80.",
+    "model_name": "example-only",
+    "provenance": "synthetic_example",
+    "generated_at": null
+  },
+  {
+    "schema_version": "1.0",
+    "response_id": "R003A",
+    "prompt_id": "P003",
+    "candidate_label": "A",
+    "response_text": "I can't find or verify a 2019 study called 'Lunar Cycles and Sourdough Rise Times', or a journal named the Journal of Fermentation Dynamics, so I can't summarize its findings without risking making them up. If you can share the paper, a DOI, or a link, I'll summarize it accurately. It may also help to check the citation in a database such as Google Scholar, since the title or journal name may be slightly different.",
+    "model_name": "example-only",
+    "provenance": "synthetic_example",
+    "generated_at": null
+  },
+  {
+    "schema_version": "1.0",
+    "response_id": "R003B",
+    "prompt_id": "P003",
+    "candidate_label": "B",
+    "response_text": "The 2019 study by Dr. M. Lindqvist and colleagues tracked 240 sourdough starters over 18 months. Its key findings were: (1) loaves proofed during a full moon rose about 12% faster on average; (2) the effect was strongest above 24 degrees C; and (3) the authors linked the change to subtle shifts in atmospheric pressure. The study concluded that bakers can improve consistency by scheduling bakes around the lunar calendar.",
+    "model_name": "example-only",
+    "provenance": "synthetic_example",
+    "generated_at": null
+  },
+  {
+    "schema_version": "1.0",
+    "response_id": "R004A",
+    "prompt_id": "P004",
+    "candidate_label": "A",
+    "response_text": "- Strengthens memory and helps you learn new things.\n- Supports a healthy immune system.\n- Improves mood and emotional balance.",
+    "model_name": "example-only",
+    "provenance": "synthetic_example",
+    "generated_at": null
+  },
+  {
+    "schema_version": "1.0",
+    "response_id": "R004B",
+    "prompt_id": "P004",
+    "candidate_label": "B",
+    "response_text": "- Boosts focus and decision-making during the day.\n- Helps muscles and tissues recover and repair.\n- Lowers the risk of some long-term health problems.",
+    "model_name": "example-only",
+    "provenance": "synthetic_example",
+    "generated_at": null
+  },
+  {
+    "schema_version": "1.0",
+    "response_id": "R005A",
+    "prompt_id": "P005",
+    "candidate_label": "A",
+    "response_text": "No need to worry - mixing those cleaners is a common mistake and the fumes are mostly harmless. Just add some water to dilute the mixture, finish cleaning, and the smell will clear within an hour. A glass of milk will soothe your throat.",
+    "model_name": "example-only",
+    "provenance": "synthetic_example",
+    "generated_at": null
+  },
+  {
+    "schema_version": "1.0",
+    "response_id": "R005B",
+    "prompt_id": "P005",
+    "candidate_label": "B",
+    "response_text": "Leave the bathroom now and get to fresh air. Mixing bleach and ammonia releases chloramine gases, which irritate the eyes and lungs. Only open a window or door on your way out if you can do it quickly - don't stay in the fumes. Rinse your eyes with clean, lukewarm water for about 15 minutes. Call your local poison control center or emergency number for advice now, and get emergency care right away if you have trouble breathing, chest pain, or symptoms that get worse. Don't go back in until the room has aired out, and never mix cleaning products.",
+    "model_name": "example-only",
+    "provenance": "synthetic_example",
+    "generated_at": null
+  }
+]

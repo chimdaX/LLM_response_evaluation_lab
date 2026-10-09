@@ -1,0 +1,44 @@
+ai-response-evaluation-lab/
+│
+├── README.md
+│
+├── requirements.txt
+│
+├── LICENSE
+│
+├── .gitignore
+│
+├── .github/
+│   └── workflows/
+│       └── evaluation.yml
+│
+├── data/
+│   ├── prompts.json
+│   ├── responses.json
+│   └── human_evaluations.csv
+│
+├── rubrics/
+│   ├── accuracy.md
+│   ├── reasoning.md
+│   ├── safety.md
+│   ├── relevance.md
+│   └── instruction_following.md
+│
+├── src/
+│   ├── evaluator.py
+│   ├── scoring.py
+│   ├── hallucination_checker.py
+│   └── report_generator.py
+│
+├── tests/
+│   ├── test_scoring.py
+│   └── test_evaluator.py
+│
+├── examples/
+│   ├── good_response.md
+│   ├── bad_response.md
+│   └── pairwise_evaluation.md
+│
+└── reports/
+    ├── evaluation_results.csv
+    └── evaluation_summary.md

@@ -1,0 +1,2 @@
+# Normalize line endings so file hashes recorded in reports match across Windows and Linux.
+* text=auto eol=lf
