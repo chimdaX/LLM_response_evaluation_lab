@@ -1,0 +1,38 @@
+{
+  "schema_version": "1.1",
+  "evaluation_id": "<unique ID, e.g. EV0001>",
+  "prompt_id": "<prompt ID, e.g. B001>",
+  "response_id": "<response ID, e.g. B001-A>",
+  "reviewer_id": "<your reviewer ID, e.g. reviewer_01>",
+  "annotation_source": "human",
+  "rubric_version": "1.0",
+  "scores": {
+    "accuracy": null,
+    "instruction_following": null,
+    "relevance": null,
+    "completeness": null,
+    "reasoning": null,
+    "clarity": null,
+    "safety": null
+  },
+  "score_rationales": {
+    "accuracy": "",
+    "instruction_following": "",
+    "relevance": "",
+    "completeness": "",
+    "reasoning": "",
+    "clarity": "",
+    "safety": ""
+  },
+  "errors": [
+    {
+      "label": "<taxonomy label, e.g. incorrect_fact>",
+      "evidence_status": "<verified | needs_verification | not_applicable>",
+      "note": "<what exactly is wrong>",
+      "source": "<reference, URL or calculation; required when verified>"
+    }
+  ],
+  "overall_rationale": "",
+  "improved_response": null,
+  "reviewed_at": "<YYYY-MM-DD>"
+}

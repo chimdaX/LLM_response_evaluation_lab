@@ -1,0 +1,13 @@
+{
+  "schema_version": "1.1",
+  "preference_id": "<unique ID, e.g. PF0001>",
+  "prompt_id": "<prompt ID, e.g. B001>",
+  "response_a_id": "<e.g. B001-A>",
+  "response_b_id": "<e.g. B001-B>",
+  "reviewer_id": "<your reviewer ID, e.g. reviewer_01>",
+  "annotation_source": "human",
+  "winner": "<A | B | tie>",
+  "reason": "",
+  "rubric_version": "1.0",
+  "reviewed_at": "<YYYY-MM-DD>"
+}

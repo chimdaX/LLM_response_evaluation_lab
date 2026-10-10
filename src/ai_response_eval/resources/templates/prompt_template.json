@@ -1,0 +1,11 @@
+{
+  "schema_version": "1.1",
+  "prompt_id": "<unique ID, e.g. P001>",
+  "domain": "<general_knowledge | science | history_geography | mathematics | coding | writing | summarization | logical_reasoning | instruction_following | ambiguous | uncertainty | safety>",
+  "prompt": "<the exact text sent to the model>",
+  "constraints": ["<explicit requirement, e.g. Maximum 80 words>"],
+  "reference_notes": "<how a reviewer can independently verify a correct answer, with sources>",
+  "created_at": "<YYYY-MM-DD>",
+  "difficulty": "<easy | moderate | challenging>",
+  "evaluation_objectives": ["<what this prompt is designed to test>"]
+}

@@ -1,12 +1,14 @@
 """Command-line interface for ``ai-eval``.
 
+Setup: ``init``.
 Analysis commands: ``validate``, ``score``, ``compare``, ``report``, ``status``.
 Benchmark-building commands: ``collect``, ``annotate``, ``annotate-pair``.
 
 Exit codes:
     0    success
     1    the input data failed validation
-    2    usage, configuration or file-system error (argparse also uses 2)
+    2    usage, configuration or file-system error, e.g. a missing --data-dir (argparse
+         also uses 2)
     130  an interactive session was interrupted (drafts are kept)
 
 No command makes network calls. Analysis commands never modify ``--data-dir``; the
@@ -24,7 +26,7 @@ from collections.abc import Sequence
 from datetime import UTC, date, datetime
 from pathlib import Path
 
-from ai_response_eval import __version__
+from ai_response_eval import __version__, resources
 from ai_response_eval.annotation import (
     AnnotationError,
     annotate_pair,
@@ -45,6 +47,7 @@ from ai_response_eval.interactive import Console, TerminalConsole, ask_yes_no
 from ai_response_eval.progress import compute_progress, format_progress
 from ai_response_eval.reporting import ReportInputs, ReportWriteError, build_reports, write_reports
 from ai_response_eval.rubric import COLLECTION_METHODS, DIMENSIONS
+from ai_response_eval.scaffold import ScaffoldError, init_dataset
 from ai_response_eval.scoring import (
     ConfigError,
     ScoringConfig,
@@ -60,8 +63,18 @@ EXIT_INVALID_DATA = 1
 EXIT_USAGE = 2
 EXIT_INTERRUPTED = 130
 
-DEFAULT_CONFIG = Path("config/scoring.json")
-DEFAULT_RUBRIC = Path("rubrics/rubric_v1.md")
+DOCS_URL = "https://github.com/chimdaX/LLM_response_evaluation_lab"
+QUICK_START = f"""\
+quick start:
+  ai-eval init my-demo --example             create a demo dataset (synthetic examples)
+  ai-eval validate --data-dir my-demo        check the data
+  ai-eval score    --data-dir my-demo        overall scores and review flags
+  ai-eval compare  --data-dir my-demo        human A/B/tie decisions
+  ai-eval report   --data-dir my-demo --output-dir my-reports
+
+Run 'ai-eval COMMAND --help' for a command's options.
+Documentation: {DOCS_URL}
+"""
 
 
 def _print_issues(result: ValidationResult, *, show_warnings: bool = True) -> None:
@@ -70,6 +83,31 @@ def _print_issues(result: ValidationResult, *, show_warnings: bool = True) -> No
     if show_warnings:
         for issue in result.warnings:
             print(issue, file=sys.stderr)
+
+
+def _missing_file_hint(result: ValidationResult) -> None:
+    if any("required file not found" in i.message for i in result.errors):
+        print(
+            "Tip: a dataset needs prompts.json, responses.json, evaluations.json and "
+            "preferences.json; 'ai-eval init DIR' creates them.",
+            file=sys.stderr,
+        )
+
+
+def _check_data_dir(data_dir: Path) -> bool:
+    """Friendly, early error for a --data-dir that does not exist or is a file."""
+    if data_dir.is_dir():
+        return True
+    if data_dir.exists():
+        print(f"ERROR: --data-dir {data_dir} is a file, not a directory.", file=sys.stderr)
+    else:
+        print(
+            f"ERROR: data directory '{data_dir}' does not exist.\n"
+            f"  To try the demo data:     ai-eval init {data_dir} --example\n"
+            f"  To start your own data:   ai-eval init {data_dir}",
+            file=sys.stderr,
+        )
+    return False
 
 
 def _load_valid(data_dir: Path) -> ValidationResult | None:
@@ -82,6 +120,7 @@ def _load_valid(data_dir: Path) -> ValidationResult | None:
             f"run 'ai-eval validate --data-dir {data_dir}' for details.",
             file=sys.stderr,
         )
+        _missing_file_hint(result)
         return None
     return result
 
@@ -113,6 +152,7 @@ def cmd_validate(args: argparse.Namespace) -> int:
         f"{args.data_dir}. Valid records so far: {counts}.",
         file=sys.stderr,
     )
+    _missing_file_hint(result)
     return EXIT_INVALID_DATA
 
 
@@ -223,6 +263,9 @@ def cmd_report(args: argparse.Namespace) -> int:
         rubric_path=args.rubric,
         generated_at=datetime.now(UTC),
     )
+    if args.output_dir.exists() and not args.output_dir.is_dir():
+        print(f"ERROR: --output-dir {args.output_dir} is a file, not a directory.", file=sys.stderr)
+        return EXIT_USAGE
     try:
         written = write_reports(
             build_reports(inputs), args.output_dir, args.data_dir, overwrite=args.overwrite
@@ -235,6 +278,38 @@ def cmd_report(args: argparse.Namespace) -> int:
     if not args.rubric.is_file():
         print(
             f"WARNING: rubric file {args.rubric} not found; its hash is omitted.", file=sys.stderr
+        )
+    print(f"Open {args.output_dir / 'summary.md'} for the readable summary.")
+    return EXIT_OK
+
+
+def cmd_init(args: argparse.Namespace) -> int:
+    try:
+        written = init_dataset(args.directory, example=args.example)
+    except (ScaffoldError, OSError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return EXIT_USAGE
+    kind = "synthetic example dataset" if args.example else "empty dataset"
+    print(f"Created {kind} in {args.directory} ({len(written)} files):")
+    for path in written:
+        print(f"  {path.relative_to(args.directory)}")
+    d = args.directory
+    if args.example:
+        print(
+            "\nThe example records are illustrative only (synthetic responses and annotations).\n"
+            "Next:\n"
+            f"  ai-eval validate --data-dir {d}\n"
+            f"  ai-eval score    --data-dir {d}\n"
+            f"  ai-eval compare  --data-dir {d}\n"
+            f"  ai-eval report   --data-dir {d} --output-dir {d.name}-reports"
+        )
+    else:
+        print(
+            "\nNext: add prompts to prompts.json (see templates/prompt_template.json), then\n"
+            f"  ai-eval collect  --data-dir {d}                         import model responses\n"
+            f"  ai-eval annotate --data-dir {d} --reviewer-id YOUR_ID   evaluate them\n"
+            "The rubric and default scoring config are in reference/; pass a customized copy "
+            "with --config."
         )
     return EXIT_OK
 
@@ -478,9 +553,26 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="ai-eval",
         description="Validate, score, compare and report human evaluations of AI responses.",
+        epilog=QUICK_START,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
-    sub = parser.add_subparsers(dest="command", required=True, metavar="COMMAND")
+    sub = parser.add_subparsers(dest="command", metavar="COMMAND")
+
+    p = sub.add_parser(
+        "init",
+        help="create a dataset directory (empty, or with --example demo data)",
+        description="Create a dataset directory with the four required JSON files, record "
+        "templates, and reference copies of the rubric and scoring config. Never overwrites "
+        "existing files.",
+    )
+    p.add_argument("directory", type=Path, help="directory to create (may already exist if empty)")
+    p.add_argument(
+        "--example",
+        action="store_true",
+        help="fill it with the synthetic demonstration dataset instead of empty files",
+    )
+    p.set_defaults(func=cmd_init)
 
     def add_data_dir(p: argparse.ArgumentParser) -> None:
         p.add_argument(
@@ -494,8 +586,8 @@ def build_parser() -> argparse.ArgumentParser:
         p.add_argument(
             "--config",
             type=Path,
-            default=DEFAULT_CONFIG,
-            help=f"scoring configuration file (default: {DEFAULT_CONFIG})",
+            default=None,
+            help="scoring configuration file (default: the built-in config/scoring.json)",
         )
 
     p = sub.add_parser("validate", help="check schemas and cross-file references")
@@ -521,8 +613,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--rubric",
         type=Path,
-        default=DEFAULT_RUBRIC,
-        help=f"rubric document to fingerprint in report metadata (default: {DEFAULT_RUBRIC})",
+        default=None,
+        help="rubric document to fingerprint in report metadata "
+        "(default: the built-in rubrics/rubric_v1.md)",
     )
     p.add_argument(
         "--overwrite", action="store_true", help="replace existing report files in --output-dir"
@@ -593,7 +686,17 @@ def main(
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(errors="replace")
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if args.command is None:
+        parser.print_help()
+        return EXIT_USAGE
+    if getattr(args, "config", "unset") is None:
+        args.config = resources.default_config_path()
+    if getattr(args, "rubric", "unset") is None:
+        args.rubric = resources.default_rubric_path()
+    if hasattr(args, "data_dir") and not _check_data_dir(args.data_dir):
+        return EXIT_USAGE
     args.console = console or TerminalConsole()
     args.today = today or date.today()
     return args.func(args)

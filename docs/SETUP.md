@@ -1,74 +1,85 @@
-# Setup
+# Installation and Setup
 
-Requirements: **Python 3.11 or newer** and an internet connection for the first install.
-No API keys, database or paid services are needed. Run every command from the repository root
-(the folder that contains `pyproject.toml`).
+Requirements: **Python 3.11, 3.12 or 3.13** and **Git**. An internet connection is needed
+only to download dependencies during installation. No API keys, databases, or paid services
+are used. For a guided first run, see the [Quick Start](QUICKSTART.md).
 
-## Linux / macOS / WSL
+## 1. Get the code and create a virtual environment
 
 ```bash
-python3 --version                    # must be 3.11+
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -e ".[dev]"
+git clone https://github.com/chimdaX/LLM_response_evaluation_lab.git
+cd LLM_response_evaluation_lab
+python -m venv .venv
 ```
 
-On Debian/Ubuntu/WSL, if `python3 -m venv` fails, install the venv module first:
-`sudo apt install python3-venv`.
+Use `python3` instead of `python` if that is how Python is named on your system (common on
+Linux and macOS), and `py` if you use the Windows Python launcher.
 
-## Windows PowerShell
+## 2. Activate the environment
 
-```powershell
-py --version                         # must be 3.11+; use "python" if the py launcher is missing
-py -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-python -m pip install -e ".[dev]"
+| Shell | Activate | Deactivate |
+|---|---|---|
+| Linux / macOS (bash, zsh) | `source .venv/bin/activate` | `deactivate` |
+| Windows PowerShell | `.\.venv\Scripts\Activate.ps1` | `deactivate` |
+| Windows Command Prompt | `.venv\Scripts\activate.bat` | `deactivate` |
+
+Your prompt shows `(.venv)` while it is active. Activate it in every new terminal.
+
+## 3. Install
+
+| You want to... | Command | Installs |
+|---|---|---|
+| Use the CLI | `python -m pip install -e .` | `ai-eval` and Pydantic (the only runtime dependency) |
+| Develop or run the tests | `python -m pip install -e ".[dev]"` | The above, plus pytest, Ruff and build |
+
+`-e` (editable) means changes to the source take effect without reinstalling. Leave it out
+for a regular installation. Users of the CLI never need pytest or Ruff.
+
+The quotes in `".[dev]"` are needed in zsh and harmless elsewhere.
+
+### Installing from a built wheel (without the source tree)
+
+```bash
+python -m pip install build
+python -m build                                       # creates dist/*.whl and dist/*.tar.gz
+python -m pip install dist/llm_response_evaluation_lab-*.whl
 ```
 
-If activation fails with *"running scripts is disabled on this system"*, allow local scripts
-for your user once, then activate again:
+On Windows Command Prompt, wildcards are not expanded; type the full wheel file name instead.
 
-```powershell
-Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
-```
+The wheel contains everything the CLI needs: the default scoring configuration, the rubric,
+the synthetic example dataset, and the record templates. `ai-eval init DIR --example` writes
+the example dataset anywhere. The documentation, the tests, and the in-progress human
+benchmark (`data/benchmark/`) are only in the repository.
 
-> **One environment per OS.** A `.venv` created in WSL/Linux does not work from Windows
-> PowerShell, and the reverse is also true. If you switch, delete `.venv` and create it again.
-
-## Verify the installation
-
-These commands are the same on every platform once the virtual environment is active:
+## 4. Verify
 
 ```bash
 ai-eval --version
-ai-eval validate --data-dir data/examples
-ai-eval score    --data-dir data/examples
-ai-eval compare  --data-dir data/examples
-ai-eval report   --data-dir data/examples --output-dir reports
-python -m pytest
-ruff check .
+ai-eval init my-demo --example
+ai-eval validate --data-dir my-demo
+ai-eval score    --data-dir my-demo
+ai-eval compare  --data-dir my-demo
+ai-eval report   --data-dir my-demo --output-dir my-reports
 ```
-
-Expected results:
 
 | Command | Expected outcome |
 |---|---|
-| `validate` | `OK: data/examples is valid (5 prompts, 10 responses, 10 evaluations, 5 preferences); 0 warning(s).` and exit code 0 |
+| `--version` | `ai-eval 0.4.0` |
+| `validate` | `OK: my-demo is valid (5 prompts, 10 responses, 10 evaluations, 5 preferences); 0 warning(s).` |
 | `score` | A table of 10 evaluations, 4 of them flagged for review |
 | `compare` | 5 decisions, each labelled *Human-recorded preference* and *System-generated score suggestion* |
-| `report` | Writes `evaluation_results.csv`, `evaluation_results.json`, `pairwise_results.csv` and `summary.md` into `reports/` |
-| `pytest` | All tests pass |
-| `ruff check .` | `All checks passed!` |
+| `report` | Writes 4 files into `my-reports/` |
 
-`report` refuses to replace existing report files. To regenerate them, add `--overwrite`:
+From a clone you can also use `--data-dir data/examples` directly.
+
+For developers:
 
 ```bash
-ai-eval report --data-dir data/examples --output-dir reports --overwrite
+python -m pytest                       # full test suite
+ruff check . && ruff format --check .  # lint and formatting
+python scripts/verify_install.py       # build, install the wheel in a fresh venv, smoke-test the CLI
 ```
-
-`python -m ai_response_eval ...` works the same way as `ai-eval ...` if the script is not on your `PATH`.
 
 ## Exit codes
 
@@ -76,14 +87,18 @@ ai-eval report --data-dir data/examples --output-dir reports --overwrite
 |---|---|
 | 0 | Success |
 | 1 | The input data failed validation (or `validate --strict` found warnings) |
-| 2 | Usage, configuration or file-system error, e.g. a missing config or report files that already exist |
+| 2 | Usage, configuration, or file-system problem, e.g. a missing `--data-dir`, a bad argument, or report files that already exist |
+| 130 | An interactive session (`collect`, `annotate`, `annotate-pair`) was interrupted; drafts are kept |
 
 ## Troubleshooting
 
-- **`ai-eval: command not found`**: the virtual environment is not active. Activate it again, or
-  use `python -m ai_response_eval`.
-- **`scoring config not found: config/scoring.json`**: run from the repository root, or pass
-  `--config path/to/scoring.json`.
-- **Hashes in `summary.md` differ between Windows and Linux**: the repository's `.gitattributes`
-  forces LF line endings so hashes match. Files edited outside git may still contain CRLF line
-  endings; re-save them with LF.
+| Problem | Fix |
+|---|---|
+| `ai-eval: command not found` / `'ai-eval' is not recognized` | The virtual environment is not active. Activate it (step 2), or run `python -m ai_response_eval ...` |
+| PowerShell: *running scripts is disabled on this system* | Run `Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned` once, then activate again |
+| `python -m venv` fails on Debian/Ubuntu/WSL | `sudo apt install python3-venv` |
+| `ERROR: Package requires a different Python` | Install Python 3.11 or newer |
+| `data directory '...' does not exist` | Check the path, or create a dataset with `ai-eval init DIR` (add `--example` for demo data) |
+| `report files already exist` | Choose another `--output-dir`, or add `--overwrite` |
+| A `.venv` from WSL does not work in Windows (or vice versa) | A virtual environment belongs to one operating system. Delete `.venv` and create it again in the shell you use |
+| Report hashes differ between Windows and Linux | The repository's `.gitattributes` keeps data files at LF line endings. If you edited a file outside Git, re-save it with LF endings |
