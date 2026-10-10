@@ -9,7 +9,7 @@ values, error rates, or CI results are reported here until they actually exist.
 | Phase | Status |
 |---|---|
 | 1. Foundation | **Complete** (v0.1.0) |
-| 2. Evaluation workflow | Tooling complete (v0.2.0); **collecting responses and human annotation have not started** |
+| 2. Evaluation workflow | Tooling complete (v0.3.0, including rationale checks and correction history); collection and annotation in progress |
 | 3. GitHub-ready release | Not started (MIT license added) |
 | 4. Research extension | Not started |
 
@@ -35,6 +35,7 @@ values, error rates, or CI results are reported here until they actually exist.
       independently checkable reference notes.
 - [x] Tooling: `collect`, `annotate`, `annotate-pair`, `status`; schema 1.1 (additive
       provenance and prompt metadata); incompleteness banners in reports.
+- [x] Rationale quality checks and append-only evaluation corrections (schema 1.2, v0.3.0).
 - [ ] Collect 40 authentic responses (2 per prompt).
 - [ ] Complete 40 human evaluations and 20 pairwise decisions. These must be real reviews;
       artificial "human evaluations" will not be generated to reach a target count.

@@ -16,6 +16,7 @@ from ai_response_eval.collection import (
     pending_slots,
 )
 from ai_response_eval.interactive import ScriptedConsole
+from ai_response_eval.rubric import SCHEMA_VERSION
 from ai_response_eval.validation import validate_data_dir
 from tests.conftest import TODAY
 
@@ -41,7 +42,7 @@ def test_pending_slots(bench_dir: Path) -> None:
 def test_import_records_provenance(bench_dir: Path) -> None:
     record = _import(bench_dir, text="\r\nLine one.\r\nLine two.\r\n\r\n")
     assert record == {
-        "schema_version": "1.1",
+        "schema_version": SCHEMA_VERSION,
         "response_id": "P2-A",
         "prompt_id": "P2",
         "candidate_label": "A",

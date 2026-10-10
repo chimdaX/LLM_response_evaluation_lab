@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 import json
-import shutil
 from pathlib import Path
 
 import pytest
 
 from ai_response_eval.cli import EXIT_INTERRUPTED, EXIT_OK, EXIT_USAGE, main
 from ai_response_eval.interactive import ScriptedConsole
-from tests.conftest import BENCHMARK_DIR, REPO_CONFIG, TODAY
+from tests.conftest import REPO_CONFIG, TODAY
 from tests.test_annotation import full_evaluation
 
 
@@ -19,17 +18,20 @@ def _run(argv: list[str], answers: list[str] | None = None) -> tuple[int, Script
     return main(argv, console=console, today=TODAY), console
 
 
-def test_status_of_committed_benchmark(capsys: pytest.CaptureFixture[str]) -> None:
-    code, _ = _run(["status", "--data-dir", str(BENCHMARK_DIR)])
+def test_status_of_unannotated_benchmark(
+    fresh_benchmark: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    code, _ = _run(["status", "--data-dir", str(fresh_benchmark)])
     assert code == EXIT_OK
     out = capsys.readouterr().out
     assert "0 of 40 slots" in out
     assert "INCOMPLETE" in out
 
 
-def test_collect_text_file_import(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    data_dir = tmp_path / "benchmark"
-    shutil.copytree(BENCHMARK_DIR, data_dir)  # never modify the committed benchmark in tests
+def test_collect_text_file_import(
+    fresh_benchmark: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    data_dir = fresh_benchmark
     text_file = tmp_path / "answer.txt"
     text_file.write_text("Weather is short-term; climate is long-term.", encoding="utf-8")
     argv = [
@@ -62,11 +64,11 @@ def test_collect_text_file_import(tmp_path: Path, capsys: pytest.CaptureFixture[
 
 
 def test_collect_text_file_requires_all_metadata(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    fresh_benchmark: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     text_file = tmp_path / "a.txt"
     text_file.write_text("x", encoding="utf-8")
-    code, _ = _run(["collect", "--data-dir", str(BENCHMARK_DIR), "--text-file", str(text_file)])
+    code, _ = _run(["collect", "--data-dir", str(fresh_benchmark), "--text-file", str(text_file)])
     assert code == EXIT_USAGE
     assert (
         "--prompt-id, --label, --model-name, --provider, --method, --generated-at"
@@ -124,9 +126,8 @@ def test_annotate_rejects_bad_reviewer_id(bench_dir: Path) -> None:
     assert code == EXIT_USAGE
 
 
-def test_annotate_nothing_to_do(tmp_path: Path) -> None:
-    data_dir = tmp_path / "benchmark"
-    shutil.copytree(BENCHMARK_DIR, data_dir)
+def test_annotate_nothing_to_do(fresh_benchmark: Path) -> None:
+    data_dir = fresh_benchmark
     code, console = _run(["annotate", "--data-dir", str(data_dir), "--reviewer-id", "r1"])
     assert code == EXIT_OK
     assert "Nothing to annotate" in console.text

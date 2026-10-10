@@ -24,6 +24,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ValidationError
 
+from ai_response_eval.rationale_quality import evaluation_issues
 from ai_response_eval.schemas import CandidateResponse, Evaluation, Preference, Prompt
 
 DATA_FILES: dict[str, tuple[str, type[BaseModel], str]] = {
@@ -65,6 +66,47 @@ class Dataset:
     @cached_property
     def responses_by_id(self) -> dict[str, CandidateResponse]:
         return {r.response_id: r for r in self.responses}
+
+    @cached_property
+    def evaluations_by_id(self) -> dict[str, Evaluation]:
+        return {e.evaluation_id: e for e in self.evaluations}
+
+    @cached_property
+    def superseded_ids(self) -> frozenset[str]:
+        """IDs of evaluations replaced by a later correction (kept as revision history)."""
+        return frozenset(e.supersedes for e in self.evaluations if e.supersedes is not None)
+
+    @cached_property
+    def active_evaluations(self) -> list[Evaluation]:
+        """Evaluations that count: the latest version of each primary review.
+
+        Excludes records superseded by a correction and consistency re-reviews, so
+        neither is double-counted by scoring, comparisons, progress or reports.
+        """
+        return [
+            e
+            for e in self.evaluations
+            if e.evaluation_id not in self.superseded_ids and e.consistency_check_of is None
+        ]
+
+    @cached_property
+    def consistency_checks(self) -> list[Evaluation]:
+        return [e for e in self.evaluations if e.consistency_check_of is not None]
+
+    def revision_chain(self, evaluation_id: str) -> list[str]:
+        """IDs from the original review to ``evaluation_id``, oldest first.
+
+        Assumes a validated dataset (no cycles); stops defensively if one is found.
+        """
+        chain, seen = [evaluation_id], {evaluation_id}
+        current = self.evaluations_by_id.get(evaluation_id)
+        while current is not None and current.supersedes is not None:
+            if current.supersedes in seen:
+                break
+            chain.append(current.supersedes)
+            seen.add(current.supersedes)
+            current = self.evaluations_by_id.get(current.supersedes)
+        return list(reversed(chain))
 
 
 @dataclass
@@ -268,7 +310,6 @@ def check_references(dataset: Dataset) -> list[Issue]:
                 Issue("warning", "prompts.json", p.prompt_id, "prompt has no candidate responses")
             )
 
-    review_counts: Counter[tuple[str, str]] = Counter()
     for e in dataset.evaluations:
         response = responses.get(e.response_id)
         if response is None:
@@ -302,18 +343,7 @@ def check_references(dataset: Dataset) -> list[Issue]:
                     f"{prompt.created_at}",
                 )
             )
-        review_counts[(e.reviewer_id, e.response_id)] += 1
-    for (reviewer, response_id), count in sorted(review_counts.items()):
-        if count > 1:
-            issues.append(
-                Issue(
-                    "warning",
-                    "evaluations.json",
-                    response_id,
-                    f"reviewer '{reviewer}' evaluated this response {count} times; keep only if "
-                    "this is an intentional consistency re-review",
-                )
-            )
+    issues.extend(check_revisions(dataset))
 
     for pref in dataset.preferences:
         if pref.prompt_id not in prompts:
@@ -349,6 +379,100 @@ def check_references(dataset: Dataset) -> list[Issue]:
                         f"not '{pref.prompt_id}'",
                     )
                 )
+    return issues
+
+
+def check_revisions(dataset: Dataset) -> list[Issue]:
+    """Rules for corrections (``supersedes``) and consistency re-reviews.
+
+    * A correction must replace an existing evaluation of the same response by the
+      same reviewer, dated no earlier than the record it replaces.
+    * Each evaluation can be superseded at most once, so history is a single chain
+      (EV0001 -> EV0002 -> EV0003) and never branches. Cycles are rejected.
+    * At most one *active* primary evaluation per reviewer and response.
+    """
+    issues: list[Issue] = []
+    by_id = dataset.evaluations_by_id
+
+    def error(evaluation_id: str, message: str) -> None:
+        issues.append(Issue("error", "evaluations.json", evaluation_id, message))
+
+    successors: dict[str, list[str]] = defaultdict(list)
+    for e in dataset.evaluations:
+        for field_name, target_id in (
+            ("supersedes", e.supersedes),
+            ("consistency_check_of", e.consistency_check_of),
+        ):
+            if target_id is None:
+                continue
+            target = by_id.get(target_id)
+            if target is None:
+                error(e.evaluation_id, f"{field_name}: unknown evaluation '{target_id}'")
+                continue
+            if (target.response_id, target.reviewer_id) != (e.response_id, e.reviewer_id):
+                error(
+                    e.evaluation_id,
+                    f"{field_name}: '{target_id}' is for response '{target.response_id}' by "
+                    f"'{target.reviewer_id}'; it must be the same response and reviewer",
+                )
+            if field_name == "supersedes":
+                successors[target_id].append(e.evaluation_id)
+                if e.reviewed_at < target.reviewed_at:
+                    error(
+                        e.evaluation_id,
+                        f"reviewed_at {e.reviewed_at} is earlier than the superseded record "
+                        f"'{target_id}' ({target.reviewed_at})",
+                    )
+                if target.consistency_check_of is not None:
+                    error(e.evaluation_id, f"supersedes: '{target_id}' is a consistency re-review")
+            if field_name == "consistency_check_of" and target.consistency_check_of is not None:
+                error(
+                    e.evaluation_id,
+                    f"consistency_check_of: '{target_id}' is itself a consistency re-review",
+                )
+
+    for target_id, newer in sorted(successors.items()):
+        if len(newer) > 1:
+            error(
+                target_id,
+                f"superseded by more than one record ({', '.join(sorted(newer))}); a revision "
+                "history must be a single chain -- revise the latest version instead",
+            )
+
+    for e in dataset.evaluations:  # cycle detection: follow each chain backwards
+        seen = {e.evaluation_id}
+        current = e
+        while current.supersedes is not None and current.supersedes in by_id:
+            if current.supersedes in seen:
+                error(e.evaluation_id, "revision history contains a cycle")
+                break
+            seen.add(current.supersedes)
+            current = by_id[current.supersedes]
+
+    active: dict[tuple[str, str], list[str]] = defaultdict(list)
+    for e in dataset.active_evaluations:
+        active[(e.reviewer_id, e.response_id)].append(e.evaluation_id)
+    for (reviewer, response_id), ids in sorted(active.items()):
+        if len(ids) > 1:
+            issues.append(
+                Issue(
+                    "error",
+                    "evaluations.json",
+                    response_id,
+                    f"reviewer '{reviewer}' has {len(ids)} active evaluations of this response "
+                    f"({', '.join(ids)}). Use supersedes for a correction or "
+                    "consistency_check_of for a deliberate re-review",
+                )
+            )
+
+    # Content checks on rationales: warnings only, and only for records that still count.
+    for e in dataset.evaluations:
+        if e.evaluation_id in dataset.superseded_ids:
+            continue
+        for field_path, problem in evaluation_issues(e.score_rationales, e.overall_rationale):
+            issues.append(
+                Issue("warning", "evaluations.json", e.evaluation_id, f"{field_path}: {problem}")
+            )
     return issues
 
 

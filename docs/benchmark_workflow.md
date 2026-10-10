@@ -22,7 +22,9 @@ For *how to judge* responses, see [`annotation_guide.md`](annotation_guide.md).
 - [Step 3: Record pairwise preferences](#step-3-record-pairwise-preferences)
 - [Step 4: Track progress and report](#step-4-track-progress-and-report)
 - [Manual templates (alternative)](#manual-templates-alternative)
-- [Drafts, interruptions and mistakes](#drafts-interruptions-and-mistakes)
+- [Drafts and interruptions](#drafts-and-interruptions)
+- [Correcting a saved evaluation](#correcting-a-saved-evaluation)
+- [Other mistakes](#other-mistakes)
 - [What to commit](#what-to-commit)
 
 ---
@@ -172,7 +174,8 @@ Use the same reviewer ID every time. Each session:
    before revealing the response. **Model and provider names are hidden.**
 4. shows the reference notes as a starting point for verification;
 5. for each of the seven dimensions, asks for a score (`1`–`5`, `n` for not assessed, `?`
-   for a rubric reminder) and a rationale (required, including for `n`);
+   for a rubric reminder) and a rationale (required, including for `n`). Rationales are
+   checked as you type (see [Rationale checks](#rationale-checks));
 6. lets you add error labels, each with an evidence status, a note, and a source (the
    source is required when the status is `verified`); type `?` to list the taxonomy;
 7. asks for an overall rationale and an optional improved response (multi-line, finish
@@ -186,11 +189,43 @@ Useful options:
 # Evaluate one specific response
 ai-eval annotate --data-dir data/benchmark --reviewer-id reviewer_01 --response-id B003-B
 
-# Deliberate consistency re-review of a response you already evaluated (creates a new record)
+# Correct one of your saved evaluations (see "Correcting a saved evaluation")
+ai-eval annotate --data-dir data/benchmark --reviewer-id reviewer_01 --revise EV0001
+
+# Deliberate consistency re-review of a response you already evaluated
 ai-eval annotate --data-dir data/benchmark --reviewer-id reviewer_01 --response-id B003-B --repeat
 ```
 
-Without `--repeat`, a second evaluation of the same response by the same reviewer is refused.
+Without `--revise` or `--repeat`, a second evaluation of the same response by the same reviewer
+is refused, and the error message names the existing evaluation.
+
+A **consistency re-review** (`--repeat`) is a blind second review: your earlier evaluation is
+not shown. It is saved with `consistency_check_of` pointing at your current evaluation, and kept
+for measuring your own consistency. It is **not** scored or counted, so it cannot double-count.
+Use `--revise`, not `--repeat`, to fix a mistake.
+
+### Rationale checks
+
+The checks look at *content*, not length. A short rationale such as "Omits the 2100
+exception." is fine; a long one such as "Overall the response is pretty good and quite clear"
+is not.
+
+| Problem | Example | What happens |
+|---|---|---|
+| Only a number or rating | `4`, `4/5`, `score: 4` | Refused; you are asked again |
+| Placeholder | `n/a`, `ok`, `fine`, `same as above`, `tbd` | Refused; you are asked again |
+| No specific content | "The model output is okay", "Correct." | Warning; keep it only by confirming |
+| Same text for three or more dimensions | "4" pasted everywhere | Shown as a CHECK in the summary |
+
+"No specific content" means that, after ignoring common words ("the", "is") and generic
+judgment words ("good", "okay", "clear", "response", "accuracy"), fewer than two meaningful
+words remain. Passing the checks does not prove a rationale is good. It only rules out obvious
+non-explanations, so the [annotation guide](annotation_guide.md#13-writing-defensible-rationales)
+still applies.
+
+`ai-eval validate` runs the same checks on saved records and reports them as **warnings**.
+Existing records are never rejected or changed because of them. `validate --strict` treats
+them as failures, and the report's summary counts evaluations with rationale warnings.
 
 ## Step 3: Record pairwise preferences
 
@@ -242,15 +277,73 @@ An unfilled template fails validation (placeholder IDs, empty rationales, and an
 date are all rejected), so an incomplete record cannot pass as finished. The interactive
 tools are safer because they validate as you go and never rewrite earlier records.
 
-## Drafts, interruptions and mistakes
+## Drafts and interruptions
 
 - **Interruptions.** Ctrl+C, closing the terminal, or `q` at the save prompt keeps a draft
   in `data/benchmark/.drafts/`. Run the same command again to resume where you stopped.
-  Drafts are working files: validation and reports ignore them.
+  This also applies to revisions. Drafts are working files: validation and reports ignore
+  them.
 - **Abandoning a draft.** Delete its file from `.drafts/`. `status` lists drafts in progress.
-- **A mistake in a saved record.** The tools never edit saved records. Fix it by hand in
-  the JSON file, keeping the IDs unchanged. Then run `ai-eval validate`, and describe the
-  correction in your commit message so the change is traceable.
+
+## Correcting a saved evaluation
+
+Saved evaluations are never edited or deleted. A correction is a **new record that supersedes
+the old one**, and the old record stays in `evaluations.json` as revision history.
+
+```bash
+ai-eval annotate --data-dir data/benchmark --reviewer-id reviewer_01 --revise EV0001
+```
+
+The tool:
+
+1. shows the revision history (e.g. `EV0001`) and lists any problems found in the original,
+   such as score-only rationales;
+2. asks for a **revision reason**: what was wrong with the original;
+3. shows the prompt and response again, then goes through every dimension, showing the
+   original score and rationale:
+   - **Enter keeps the original score.** Nothing changes unless you change it, and you
+     confirm every dimension.
+   - The original rationale is offered as the default **only if it passes the rationale
+     checks**. Flagged rationales (like `"4"`) must be rewritten.
+4. offers to keep the original error labels, lets you add more, then asks for the overall
+   rationale (same rules as above);
+5. shows a summary with every changed score marked `(was N)`, then saves the new record, e.g.
+   `EV0002` with `"supersedes": "EV0001"` and your `revision_reason`.
+
+### Revision chains
+
+You can correct a correction: `--revise EV0002` creates `EV0003`, which supersedes `EV0002`.
+The history is always a single line, `EV0001 -> EV0002 -> EV0003`. To keep it that way:
+
+- only the **latest** version can be revised (`--revise EV0001` after `EV0002` exists is
+  refused);
+- only the **original reviewer** can revise an evaluation;
+- `validate` rejects branching (two records superseding the same one), cycles, references to
+  unknown evaluations or to a different response or reviewer, a correction dated before the
+  record it replaces, and more than one *active* evaluation per reviewer and response.
+
+### What counts after a correction
+
+Only the **active** version (the latest in each chain) is used by `score`, `compare`, `report`,
+and `status`. Superseded versions and consistency re-reviews remain in the data, are excluded
+from every count and aggregate, and are summarized in the report's **Revision history** banner
+and in the JSON metadata (`revision_history`). The CSV's `supersedes` column links each active
+evaluation to the record it replaced.
+
+### Procedure
+
+1. `ai-eval validate --data-dir data/benchmark` lists the rationale warnings to fix.
+2. Run `annotate --revise <ID>` for each affected evaluation, and give a specific revision
+   reason.
+3. `ai-eval validate` again: the warnings for superseded records disappear.
+4. Commit `evaluations.json` with a message naming the corrected IDs, e.g.
+   `data: revise EV0001 (score-only rationales)`.
+
+Do not hand-edit saved evaluations. A hand edit erases the original from the data and can
+only be traced through git history.
+
+## Other mistakes
+
 - **A mistake in a prompt's reference notes.** Correct the note in `prompts.json` and
   mention it in the commit message. If the change could have affected evaluations already
   saved, re-check those evaluations.

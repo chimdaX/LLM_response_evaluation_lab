@@ -160,9 +160,13 @@ class ScoredEvaluation:
 
 
 def score_evaluations(dataset: Dataset, config: ScoringConfig) -> list[ScoredEvaluation]:
-    """Score every evaluation of a *validated* dataset, sorted by evaluation_id."""
+    """Score the *active* evaluations of a validated dataset, sorted by evaluation_id.
+
+    Superseded versions and consistency re-reviews are excluded so that no review is
+    counted twice (see ``Dataset.active_evaluations``).
+    """
     results = []
-    for evaluation in dataset.evaluations:
+    for evaluation in dataset.active_evaluations:
         response = dataset.responses_by_id[evaluation.response_id]
         prompt = dataset.prompts_by_id[response.prompt_id]
         results.append(

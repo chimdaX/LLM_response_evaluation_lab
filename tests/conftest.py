@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import json
+import shutil
 from collections.abc import Callable
 from datetime import date
 from pathlib import Path
@@ -68,9 +69,11 @@ def make_evaluation(
         "annotation_source": "illustrative_example",
         "rubric_version": "1.0",
         "scores": scores,
-        "score_rationales": {d: f"Rationale for {d}." for d in DIMENSIONS},
+        "score_rationales": {
+            d: f"Checked {d} against the prompt requirements." for d in DIMENSIONS
+        },
         "errors": [],
-        "overall_rationale": "Overall rationale.",
+        "overall_rationale": "States the scattering mechanism correctly.",
         "improved_response": None,
         "reviewed_at": "2026-01-02",
     }
@@ -189,3 +192,18 @@ def benchmark_records() -> Records:
 @pytest.fixture
 def bench_dir(tmp_path: Path) -> Path:
     return write_records(tmp_path / "bench", copy.deepcopy(benchmark_records()))
+
+
+@pytest.fixture
+def fresh_benchmark(tmp_path: Path) -> Path:
+    """The committed benchmark prompts with empty response/annotation files.
+
+    Tests must never depend on (or modify) the reviewer's real, evolving annotations in
+    data/benchmark, so they work on this copy instead.
+    """
+    data_dir = tmp_path / "benchmark"
+    data_dir.mkdir()
+    shutil.copy(BENCHMARK_DIR / "prompts.json", data_dir / "prompts.json")
+    for name in ("responses", "evaluations", "preferences"):
+        (data_dir / f"{name}.json").write_text("[]\n", encoding="utf-8")
+    return data_dir

@@ -242,3 +242,14 @@ def test_incomplete_banner_and_metadata(
 
 def test_complete_dataset_has_no_incomplete_banner(config: ScoringConfig) -> None:
     assert "Incomplete annotation" not in _reports(EXAMPLES_DIR, config)["summary.md"]
+
+
+def test_all_human_banner_does_not_mention_illustrative_records(
+    records: Records, write_dataset, config: ScoringConfig
+) -> None:
+    for e in records["evaluations"]:
+        e["annotation_source"] = "human"
+    records["preferences"][0]["annotation_source"] = "human"
+    summary = _reports(write_dataset(records), config)["summary.md"]
+    assert "Genuine human annotations: 2 of 2 evaluation records and 1 of 1" in summary
+    assert "Other records are illustrative examples" not in summary

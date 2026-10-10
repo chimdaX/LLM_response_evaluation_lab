@@ -3,11 +3,11 @@
 A reproducible, human-first framework for evaluating AI-generated answers: rubric-based scoring,
 pairwise comparison, error classification, and traceable reports.
 
-> **Status:** v0.2.0. The offline core (validation, scoring, comparison, reporting) and the
-> benchmark-building tools (response collection, blind human annotation, progress tracking)
-> are implemented and tested. The benchmark's 20 prompts are ready; **no responses have been
-> collected or evaluated yet**, so there are no benchmark results. A small synthetic
-> demonstration dataset shows the pipeline end to end.
+> **Status:** v0.3.0. The offline core (validation, scoring, comparison, reporting) and the
+> benchmark-building tools (response collection, blind human annotation, correction history,
+> progress tracking) are implemented and tested. The benchmark's 20 prompts are ready.
+> Collection and annotation have only just started (see `ai-eval status`), so there are no
+> benchmark results. A small synthetic demonstration dataset shows the pipeline end to end.
 
 ## The problem
 
@@ -37,7 +37,8 @@ judgments transparently. It never claims to verify facts automatically.
 | **Pairwise comparison** | Human A/B/tie preferences with reasons, shown next to a clearly labelled, system-generated score-based suggestion as a consistency check. |
 | **Provenance tracking** | Each response records whether it is a synthetic example or real model output. Each evaluation records whether it is a genuine human annotation or an illustrative example. |
 | **Response collection** | Imports authentic model outputs with their provenance (model, provider, collection method, date, known settings). Existing responses are never replaced. |
-| **Human annotation tools** | Interactive, blind (model names hidden), resumable evaluation and A/B/tie sessions that validate every entry and save append-only records in the existing schema. |
+| **Human annotation tools** | Interactive, blind (model names hidden), resumable evaluation and A/B/tie sessions that validate every entry and save append-only records in the existing schema. Rationales are checked for content (score-only, placeholder, or generic text), not length. |
+| **Correction history** | Saved evaluations are never edited. A correction is a new record that supersedes the old one (`EV0001 -> EV0002 -> EV0003`). Only the latest version is scored and reported, and branching, cycles, and duplicate active reviews are rejected. |
 | **Reproducible reports** | CSV, JSON, and Markdown reports with SHA-256 hashes of every input, the rubric, and the scoring configuration. |
 
 ## How it works
@@ -312,7 +313,7 @@ python -m pytest
 ruff check .
 ```
 
-**Verified results (v0.2.0):** all **190 tests pass** and `ruff check .` reports no issues, run
+**Verified results (v0.3.0):** all **256 tests pass** and `ruff check .` reports no issues, run
 locally on Python 3.12.3 (Linux/WSL). Continuous integration is not set up yet, so there is no
 CI status to report.
 
@@ -327,6 +328,8 @@ For the benchmark tools, they also cover:
 - duplicate-evaluation refusal and blind display;
 - response provenance and no-overwrite import;
 - progress on incomplete benchmarks;
+- rationale content checks, evaluation corrections, revision chains (including branching and
+  cycle rejection), and active-only scoring;
 - backward compatibility of schema 1.0 data.
 
 ## Current scope and future work
@@ -334,8 +337,9 @@ For the benchmark tools, they also cover:
 **Available now**
 
 - Rubric v1.0, schemas, validation, scoring, review flags, pairwise comparison, and reports.
-- Benchmark tools: `collect`, `annotate`, `annotate-pair`, and `status`, plus an annotation
-  guide and a workflow guide.
+- Benchmark tools: `collect`, `annotate` (with `--revise` corrections and `--repeat`
+  consistency re-reviews), `annotate-pair`, and `status`, plus an annotation guide and a
+  workflow guide.
 - 20 benchmark prompts with reference notes; the synthetic demonstration dataset; the test
   suite.
 
