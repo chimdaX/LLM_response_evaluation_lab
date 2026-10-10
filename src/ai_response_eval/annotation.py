@@ -33,6 +33,11 @@ from ai_response_eval.interactive import (
     ask_yes_no,
     wrap,
 )
+from ai_response_eval.rationale_quality import (
+    check_rationale,
+    evaluation_issues,
+    repeated_rationales,
+)
 from ai_response_eval.rubric import (
     DIMENSIONS,
     ERROR_TAXONOMY,
@@ -211,13 +216,22 @@ def _show_taxonomy(console: Console) -> None:
 # --- single-response evaluation -----------------------------------------------------------
 
 
-def _ask_score(console: Console, dimension: str) -> int | None:
+_KEEP = object()  # sentinel: "no default offered" (None is a legitimate null score)
+
+
+def _ask_score(console: Console, dimension: str, *, default: object = _KEEP) -> int | None:
+    """Ask for a 1-5 score or n. With a ``default`` (revisions), Enter keeps it."""
     question, reminder = DIMENSION_GUIDE[dimension]
     console.say("")
     console.say(f"[{dimension}] {question}")
     console.say(f"    {SCALE}")
+    keep = ""
+    if default is not _KEEP:
+        keep = f" [Enter keeps {'n' if default is None else default}]"
     while True:
-        raw = console.ask(f"  {dimension} score: ").strip().lower()
+        raw = console.ask(f"  {dimension} score{keep}: ").strip().lower()
+        if not raw and default is not _KEEP:
+            return default  # type: ignore[return-value]
         if raw == "?":
             console.say(wrap(reminder))
             console.say("    Full anchors: rubrics/rubric_v1.md")
@@ -227,6 +241,33 @@ def _ask_score(console: Console, dimension: str) -> int | None:
         if raw.isdigit() and SCORE_MIN <= int(raw) <= SCORE_MAX:
             return int(raw)
         console.say(f"  Enter a whole number {SCORE_MIN}-{SCORE_MAX}, n, or ?.")
+
+
+def _ask_rationale(console: Console, prompt: str, *, default: str | None = None) -> str:
+    """Ask for an explanation and apply the content checks in ``rationale_quality``.
+
+    Score-like text and placeholders are refused. Text without specific content gets a
+    warning; the reviewer may keep it after confirming (short, specific text is fine).
+    """
+    while True:
+        text = ask_text(console, prompt, default=default) or ""
+        problems = check_rationale(text)
+        blocking = [p for p in problems if p.severity == "blocking"]
+        if blocking:
+            console.say(f"  Not accepted: {blocking[0].message}.")
+            default = None
+            continue
+        if problems:
+            console.say(f"  WARNING: {problems[0].message}.")
+            if not ask_yes_no(console, "  Keep this text anyway?", default=False):
+                default = None
+                continue
+        return text
+
+
+def _clean_default(text: str | None) -> str | None:
+    """Offer an earlier rationale as a default only if it passes every content check."""
+    return text if text and not check_rationale(text) else None
 
 
 def _ask_error(console: Console) -> dict[str, Any]:
@@ -270,6 +311,8 @@ def _consistency_warnings(draft: dict[str, Any]) -> list[str]:
         warnings.append(f"safety is {safety} but no safety error is labelled")
     if acc == 5 and categories & {"factual", "hallucination"}:
         warnings.append("accuracy is 5 but a factual/hallucination error is labelled")
+    for text, dims in repeated_rationales(draft.get("score_rationales", {})):
+        warnings.append(f"the same rationale ('{text}') is used for {', '.join(dims)}")
     return warnings
 
 
@@ -279,6 +322,7 @@ def _evaluation_record(
     reviewer_id: str,
     evaluation_id: str,
     today: date,
+    **extra: str,
 ) -> dict[str, Any]:
     return {
         "schema_version": SCHEMA_VERSION,
@@ -294,17 +338,27 @@ def _evaluation_record(
         "overall_rationale": draft["overall_rationale"],
         "improved_response": draft.get("improved_response"),
         "reviewed_at": today.isoformat(),
+        **extra,
     }
 
 
-def _show_evaluation_summary(console: Console, draft: dict[str, Any]) -> None:
+def _fmt(score: int | None) -> str:
+    return "n/a" if score is None else str(score)
+
+
+def _show_evaluation_summary(
+    console: Console, draft: dict[str, Any], original: Evaluation | None = None
+) -> None:
     console.say("")
     console.say("Review your evaluation:")
+    if draft.get("revision_reason"):
+        console.say(f"    revision reason: {draft['revision_reason']}")
     for d in DIMENSIONS:
         score = draft["scores"][d]
-        console.say(
-            f"    {d:<22} {'n/a' if score is None else score}   {draft['score_rationales'][d]}"
-        )
+        change = ""
+        if original is not None and original.scores[d] != score:
+            change = f" (was {_fmt(original.scores[d])})"
+        console.say(f"    {d:<22} {_fmt(score)}{change}   {draft['score_rationales'][d]}")
     errors = draft.get("errors", [])
     listed = ", ".join(f"{e['label']} ({e['evidence_status']})" for e in errors)
     console.say(f"    errors: {listed or 'none'}")
@@ -314,6 +368,107 @@ def _show_evaluation_summary(console: Console, draft: dict[str, Any]) -> None:
     )
     for warning in _consistency_warnings(draft):
         console.say(f"  CHECK: {warning}")
+
+
+def _fill_evaluation(
+    console: Console,
+    draft: dict[str, Any],
+    key: str,
+    drafts: DraftStore,
+    original: Evaluation | None = None,
+) -> bool:
+    """Ask every remaining item, then review. True = save; False = quit (draft kept).
+
+    With ``original`` (a revision), each item shows the earlier value. Scores can be kept
+    with Enter; earlier rationales are offered only if they pass the content checks.
+    """
+    while True:
+        for dim in DIMENSIONS:
+            if dim in draft["scores"]:
+                continue
+            default: object = _KEEP
+            rationale_default = None
+            if original is not None:
+                old_text = original.score_rationales[dim]
+                flagged = check_rationale(old_text)
+                note = f"  [{flagged[0].code}: must be rewritten]" if flagged else ""
+                console.say(f"\n  Original {dim}: {_fmt(original.scores[dim])} -- {old_text}{note}")
+                default = original.scores[dim]
+                rationale_default = _clean_default(old_text)
+            score = _ask_score(console, dim, default=default)
+            prompt = (
+                f"  Why was {dim} not assessed?"
+                if score is None
+                else f"  Rationale for {dim}: what did you observe? (not the score)"
+            )
+            draft["scores"][dim] = score
+            draft["score_rationales"][dim] = _ask_rationale(
+                console, prompt, default=rationale_default
+            )
+            drafts.save(key, draft)
+
+        if not draft.get("errors_done"):
+            if original is not None and original.errors and not draft.get("errors_seeded"):
+                console.say("\nOriginal error labels:")
+                for e in original.errors:
+                    console.say(f"    {e.label} ({e.evidence_status}): {e.note}")
+                if ask_yes_no(console, "Keep the original error labels?", default=True):
+                    draft["errors"] = [e.model_dump() for e in original.errors]
+                draft["errors_seeded"] = True
+                drafts.save(key, draft)
+            console.say(
+                "\nError labels: record each suspected or verified issue with its evidence."
+            )
+            while ask_yes_no(console, "Add an error label?", default=False):
+                draft["errors"].append(_ask_error(console))
+                drafts.save(key, draft)
+            draft["errors_done"] = True
+            drafts.save(key, draft)
+
+        if "overall_rationale" not in draft:
+            if original is not None:
+                console.say(f"\n  Original overall rationale: {original.overall_rationale}")
+            draft["overall_rationale"] = _ask_rationale(
+                console,
+                "\nOverall rationale (1-3 sentences: the decisive strengths and problems)",
+                default=_clean_default(original.overall_rationale if original else None),
+            )
+            drafts.save(key, draft)
+        if "improved_response" not in draft:
+            if (
+                original is not None
+                and original.improved_response
+                and ask_yes_no(console, "Keep the original improved response?", default=True)
+            ):
+                draft["improved_response"] = original.improved_response
+            else:
+                draft["improved_response"] = ask_multiline(
+                    console,
+                    "Improved response (optional; do not invent facts you have not checked)",
+                )
+            drafts.save(key, draft)
+
+        _show_evaluation_summary(console, draft, original)
+        action = ask_choice(
+            console,
+            "Save? s=save, e=edit an item, q=quit and keep draft",
+            {"s": "save", "e": "edit", "q": "quit"},
+        )
+        if action == "quit":
+            console.say(f"Draft kept. Resume with the same command (draft: {drafts.path(key)}).")
+            return False
+        if action == "edit":
+            _edit_item(console, draft)
+            drafts.save(key, draft)
+            continue
+        return True
+
+
+def _active_evaluation(dataset: Dataset, reviewer_id: str, response_id: str) -> Evaluation | None:
+    for e in dataset.active_evaluations:
+        if e.reviewer_id == reviewer_id and e.response_id == response_id:
+            return e
+    return None
 
 
 def annotate_response(
@@ -329,28 +484,44 @@ def annotate_response(
 ) -> dict[str, Any] | None:
     """Run one evaluation. Returns the saved record, or None if the reviewer stopped.
 
+    With ``allow_repeat`` and an existing evaluation, the new record is a *consistency
+    re-review* (``consistency_check_of``): stored for consistency analysis, excluded from
+    scoring. The original is not shown, so the re-review stays independent.
+
     Raises ``EOFError`` / ``KeyboardInterrupt`` from the console unchanged; every answer
     given before that point is already in the draft.
     """
-    if not allow_repeat and response.response_id in evaluated_response_ids(dataset, reviewer_id):
+    existing = _active_evaluation(dataset, reviewer_id, response.response_id)
+    if existing is not None and not allow_repeat:
         raise AnnotationError(
-            f"{reviewer_id} has already evaluated {response.response_id}; "
-            "use --repeat only for a deliberate consistency re-review"
+            f"{reviewer_id} has already evaluated {response.response_id} "
+            f"({existing.evaluation_id}). To correct it, use --revise "
+            f"{existing.evaluation_id}; for a deliberate consistency re-review, use --repeat"
         )
+    repeat_of = existing.evaluation_id if existing is not None else None
     prompt = dataset.prompts_by_id[response.prompt_id]
-    key = _evaluation_key(reviewer_id, response.response_id)
+    key = (
+        f"consistency__{reviewer_id}__{response.response_id}"
+        if repeat_of
+        else _evaluation_key(reviewer_id, response.response_id)
+    )
     draft = drafts.load(key)
     if draft is not None:
         console.say(f"\nResuming saved draft for {response.response_id}.")
     else:
         draft = {
-            "kind": "evaluation",
+            "kind": "consistency_check" if repeat_of else "evaluation",
             "response_id": response.response_id,
             "reviewer_id": reviewer_id,
             "scores": {},
             "score_rationales": {},
             "errors": [],
         }
+    if repeat_of:
+        console.say(
+            f"\nConsistency re-review of {response.response_id} (your earlier review "
+            f"{repeat_of} is not shown). It will be stored separately and not scored."
+        )
 
     show_prompt(console, prompt)
     if not draft.get("response_revealed"):
@@ -361,56 +532,111 @@ def annotate_response(
     show_response(console, response, f"RESPONSE (candidate {response.candidate_label})")
     show_reference_notes(console, prompt)
 
-    while True:
-        for dim in DIMENSIONS:
-            if dim in draft["scores"]:
-                continue
-            score = _ask_score(console, dim)
-            why = "Why was it not assessed?" if score is None else "Rationale"
-            rationale = ask_text(console, f"  {why}")
-            draft["scores"][dim] = score
-            draft["score_rationales"][dim] = rationale
-            drafts.save(key, draft)
-
-        if not draft.get("errors_done"):
-            console.say(
-                "\nError labels: record each suspected or verified issue with its evidence."
-            )
-            while ask_yes_no(console, "Add an error label?", default=False):
-                draft["errors"].append(_ask_error(console))
-                drafts.save(key, draft)
-            draft["errors_done"] = True
-            drafts.save(key, draft)
-
-        if "overall_rationale" not in draft:
-            draft["overall_rationale"] = ask_text(console, "\nOverall rationale (1-3 sentences)")
-            drafts.save(key, draft)
-        if "improved_response" not in draft:
-            draft["improved_response"] = ask_multiline(
-                console, "Improved response (optional; do not invent facts you have not checked)"
-            )
-            drafts.save(key, draft)
-
-        _show_evaluation_summary(console, draft)
-        action = ask_choice(
-            console,
-            "Save? s=save, e=edit an item, q=quit and keep draft",
-            {"s": "save", "e": "edit", "q": "quit"},
-        )
-        if action == "quit":
-            console.say(f"Draft kept. Resume with the same command (draft: {drafts.path(key)}).")
-            return None
-        if action == "edit":
-            _edit_item(console, draft)
-            drafts.save(key, draft)
-            continue
-        break
+    if not _fill_evaluation(console, draft, key, drafts):
+        return None
 
     evaluation_id = next_id(data_dir / "evaluations.json", "evaluation_id", EVALUATION_ID_PREFIX)
-    record = _evaluation_record(draft, response, reviewer_id, evaluation_id, today)
+    extra = {"consistency_check_of": repeat_of} if repeat_of else {}
+    record = _evaluation_record(draft, response, reviewer_id, evaluation_id, today, **extra)
     _validate_and_append(data_dir / "evaluations.json", record, Evaluation, "evaluation_id")
     drafts.delete(key)
     console.say(f"Saved {evaluation_id} for {response.response_id}.")
+    return record
+
+
+def revise_evaluation(
+    console: Console,
+    data_dir: Path,
+    dataset: Dataset,
+    evaluation_id: str,
+    reviewer_id: str,
+    *,
+    today: date,
+    drafts: DraftStore,
+) -> dict[str, Any] | None:
+    """Correct a saved evaluation by appending a NEW record that supersedes it.
+
+    The original stays unchanged in evaluations.json as revision history. Only the
+    latest version of a chain can be revised (EV0001 -> EV0002 -> EV0003), so history
+    never branches. Nothing is changed automatically: every score is confirmed or
+    changed by the reviewer, and flagged rationales must be rewritten.
+    """
+    original = dataset.evaluations_by_id.get(evaluation_id)
+    if original is None:
+        raise AnnotationError(f"unknown evaluation_id '{evaluation_id}'")
+    if original.reviewer_id != reviewer_id:
+        raise AnnotationError(
+            f"{evaluation_id} belongs to reviewer '{original.reviewer_id}'; only the original "
+            "reviewer can revise it (a different reviewer should add their own evaluation)"
+        )
+    if original.annotation_source != "human":
+        raise AnnotationError(f"{evaluation_id} is not a human annotation and cannot be revised")
+    if original.consistency_check_of is not None:
+        raise AnnotationError(
+            f"{evaluation_id} is a consistency re-review; those are kept as recorded"
+        )
+    if evaluation_id in dataset.superseded_ids:
+        newer = [e.evaluation_id for e in dataset.evaluations if e.supersedes == evaluation_id]
+        raise AnnotationError(
+            f"{evaluation_id} has already been revised by {', '.join(newer)}; revise the "
+            "latest version instead so the history stays a single chain"
+        )
+    if today < original.reviewed_at:
+        raise AnnotationError(f"{evaluation_id} is dated {original.reviewed_at}, after today")
+
+    response = dataset.responses_by_id[original.response_id]
+    prompt = dataset.prompts_by_id[response.prompt_id]
+    key = f"revision__{reviewer_id}__{evaluation_id}"
+    draft = drafts.load(key)
+    if draft is not None:
+        console.say(f"\nResuming saved revision draft for {evaluation_id}.")
+    else:
+        draft = {
+            "kind": "revision",
+            "supersedes": evaluation_id,
+            "scores": {},
+            "score_rationales": {},
+            "errors": [],
+        }
+
+    chain = dataset.revision_chain(evaluation_id)
+    console.say(
+        f"\nRevising {evaluation_id} for {response.response_id} (history: {' -> '.join(chain)})."
+    )
+    console.say("The original is kept unchanged; your corrected version is saved as a new record.")
+    problems = evaluation_issues(original.score_rationales, original.overall_rationale)
+    if problems:
+        console.say("Problems found in the original:")
+        for field_path, problem in problems:
+            console.say(f"    {field_path}: {problem}")
+    show_prompt(console, prompt)
+    show_response(console, response, f"RESPONSE (candidate {response.candidate_label})")
+    show_reference_notes(console, prompt)
+
+    if "revision_reason" not in draft:
+        draft["revision_reason"] = _ask_rationale(
+            console, "\nReason for this correction (what was wrong with the original?)"
+        )
+        drafts.save(key, draft)
+
+    if not _fill_evaluation(console, draft, key, drafts, original):
+        return None
+
+    new_id = next_id(data_dir / "evaluations.json", "evaluation_id", EVALUATION_ID_PREFIX)
+    record = _evaluation_record(
+        draft,
+        response,
+        reviewer_id,
+        new_id,
+        today,
+        supersedes=evaluation_id,
+        revision_reason=draft["revision_reason"],
+    )
+    _validate_and_append(data_dir / "evaluations.json", record, Evaluation, "evaluation_id")
+    drafts.delete(key)
+    console.say(
+        f"Saved {new_id}, superseding {evaluation_id} ({evaluation_id} is kept as history)."
+    )
     return record
 
 
@@ -428,6 +654,7 @@ def _edit_item(console: Console, draft: dict[str, Any]) -> None:
     elif choice == "errors":
         draft["errors"] = []
         draft["errors_done"] = False
+        draft["errors_seeded"] = True  # do not re-offer the original labels after clearing
         console.say("  Error labels cleared; you will re-enter them.")
     elif choice == "overall":
         draft.pop("overall_rationale", None)

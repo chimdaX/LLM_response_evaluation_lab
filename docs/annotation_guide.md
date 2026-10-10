@@ -266,8 +266,9 @@ before `annotate-pair`).
 | Halo effect | One strong dimension raises the others | Score each dimension against its own anchor |
 
 Consistency check: after a gap of at least a few days, re-evaluate a small subset (e.g. 4
-of 40 responses) with `ai-eval annotate --response-id <id> --repeat`. Large differences
-point to unclear anchors or drift. Note them, and revise the rubric through a new version
+of 40 responses) with `ai-eval annotate --response-id <id> --repeat`. The re-review is blind
+(your earlier evaluation is not shown) and is stored separately without being scored. Large
+differences point to unclear anchors or drift. Note them, and revise the rubric through a new version
 if needed.
 
 ## 13. Writing defensible rationales
@@ -277,6 +278,19 @@ It names what you observed and why it led to the score. Another reviewer reading
 be able to check it and reach the same score.
 
 **Pattern:** *[observation] + [evidence or check] → [consequence for this dimension]*
+
+A rationale explains the score; it never repeats it. Typing `4` into a rationale field,
+or writing the same sentence for every dimension, records nothing another reviewer can
+check. The `annotate` tool refuses score-only and placeholder rationales, and warns about
+text with no specific content (see
+[Rationale checks](benchmark_workflow.md#rationale-checks)). Short is fine if it is specific:
+"Omits the 2100 exception." is a good rationale; "The response is okay and quite clear
+overall." is not.
+
+If you find a weak rationale in an evaluation you already saved, correct it with
+`ai-eval annotate --revise <ID>` (see
+[Correcting a saved evaluation](benchmark_workflow.md#correcting-a-saved-evaluation)).
+Never edit the saved record by hand.
 
 ### Good and poor examples
 
@@ -305,7 +319,8 @@ have not verified. A minimal correction is better than a rewrite in your own sty
 Before saving an evaluation, confirm:
 
 - [ ] I identified the prompt's explicit and implicit requirements before reading.
-- [ ] Every score has a specific rationale; every null explains why.
+- [ ] Every score has a specific rationale that explains (not repeats) the score; every null
+      explains why.
 - [ ] Each problem is scored under the dimension it actually affects.
 - [ ] Every factual claim I marked wrong was verified, with a source recorded.
 - [ ] Claims I could not check are marked `needs_verification`.

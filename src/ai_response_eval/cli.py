@@ -32,6 +32,7 @@ from ai_response_eval.annotation import (
     confirm_attestation,
     evaluation_queue,
     preference_queue,
+    revise_evaluation,
 )
 from ai_response_eval.collection import (
     CANDIDATE_LABELS,
@@ -342,6 +343,11 @@ def cmd_annotate(args: argparse.Namespace) -> int:
         return EXIT_INVALID_DATA
     console: Console = args.console
     dataset, drafts = result.dataset, DraftStore(args.data_dir)
+    if args.revise is not None:
+        if args.repeat:
+            print("ERROR: --revise and --repeat cannot be combined", file=sys.stderr)
+            return EXIT_USAGE
+        return _run_revision(args, console, dataset, drafts)
     if args.response_id is not None:
         response = dataset.responses_by_id.get(args.response_id)
         if response is None:
@@ -388,6 +394,32 @@ def cmd_annotate(args: argparse.Namespace) -> int:
         f"\n{saved} evaluation(s) saved this session. Run 'ai-eval status --data-dir "
         f"{args.data_dir}' to see progress."
     )
+    return EXIT_OK
+
+
+def _run_revision(args: argparse.Namespace, console: Console, dataset, drafts: DraftStore) -> int:
+    try:
+        if not confirm_attestation(console):
+            console.say("Not confirmed; nothing was recorded.")
+            return EXIT_USAGE
+        record = revise_evaluation(
+            console,
+            args.data_dir,
+            dataset,
+            args.revise,
+            args.reviewer_id,
+            today=args.today,
+            drafts=drafts,
+        )
+    except (KeyboardInterrupt, EOFError):
+        return _interrupted()
+    except (AnnotationError, StorageError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return EXIT_USAGE
+    if record is not None:
+        console.say(
+            f"Run 'ai-eval validate --data-dir {args.data_dir}' to confirm the revision history."
+        )
     return EXIT_OK
 
 
@@ -523,11 +555,20 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("annotate", help="evaluate collected responses against the rubric")
     add_data_dir(p)
     p.add_argument("--reviewer-id", required=True, help="your stable reviewer ID, e.g. reviewer_01")
-    p.add_argument("--response-id", help="evaluate this response instead of the next in the queue")
+    target = p.add_mutually_exclusive_group()
+    target.add_argument(
+        "--response-id", help="evaluate this response instead of the next in the queue"
+    )
+    target.add_argument(
+        "--revise",
+        metavar="EVALUATION_ID",
+        help="correct one of your saved evaluations; saves a new record that supersedes it",
+    )
     p.add_argument(
         "--repeat",
         action="store_true",
-        help="allow a second evaluation of a response you already evaluated (consistency check)",
+        help="deliberate consistency re-review of a response you already evaluated "
+        "(stored separately, not scored)",
     )
     p.set_defaults(func=cmd_annotate)
 

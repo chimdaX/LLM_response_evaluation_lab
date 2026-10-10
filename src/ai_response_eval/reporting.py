@@ -21,6 +21,7 @@ from typing import Any
 
 from ai_response_eval import __version__
 from ai_response_eval.comparisons import PairwiseRow, summarize_pairwise
+from ai_response_eval.rationale_quality import evaluation_issues
 from ai_response_eval.rubric import (
     DIMENSIONS,
     LABEL_TO_CATEGORY,
@@ -68,17 +69,17 @@ def _counts(inputs: ReportInputs) -> dict[str, int]:
     return {
         "prompts": len(d.prompts),
         "candidate_responses": len(d.responses),
-        "evaluation_records": len(d.evaluations),
+        "evaluation_records": len(d.active_evaluations),
         "scored_evaluations": sum(s.overall is not None for s in inputs.scored),
         "reviewers": len(
-            {e.reviewer_id for e in d.evaluations} | {p.reviewer_id for p in d.preferences}
+            {e.reviewer_id for e in d.active_evaluations} | {p.reviewer_id for p in d.preferences}
         ),
         "pairwise_decisions": len(d.preferences),
     }
 
 
 def _completeness(dataset: Dataset) -> dict[str, int]:
-    evaluated = {e.response_id for e in dataset.evaluations}
+    evaluated = {e.response_id for e in dataset.active_evaluations}
     answered = {r.prompt_id for r in dataset.responses}
     return {
         "responses_without_evaluation": sum(
@@ -88,13 +89,25 @@ def _completeness(dataset: Dataset) -> dict[str, int]:
     }
 
 
+def _revision_history(dataset: Dataset) -> dict[str, int]:
+    """Records kept for traceability but excluded from every aggregate."""
+    return {
+        "superseded_evaluations": len(dataset.superseded_ids),
+        "consistency_rereviews": len(dataset.consistency_checks),
+        "active_evaluations_with_rationale_warnings": sum(
+            bool(evaluation_issues(e.score_rationales, e.overall_rationale))
+            for e in dataset.active_evaluations
+        ),
+    }
+
+
 def _provenance(dataset: Dataset) -> dict[str, dict[str, int]]:
     return {
         "responses_by_provenance": dict(
             sorted(Counter(r.provenance for r in dataset.responses).items())
         ),
         "evaluations_by_annotation_source": dict(
-            sorted(Counter(e.annotation_source for e in dataset.evaluations).items())
+            sorted(Counter(e.annotation_source for e in dataset.active_evaluations).items())
         ),
         "preferences_by_annotation_source": dict(
             sorted(Counter(p.annotation_source for p in dataset.preferences).items())
@@ -104,7 +117,7 @@ def _provenance(dataset: Dataset) -> dict[str, dict[str, int]]:
 
 def _genuine_human_counts(dataset: Dataset) -> tuple[int, int]:
     return (
-        sum(e.annotation_source == "human" for e in dataset.evaluations),
+        sum(e.annotation_source == "human" for e in dataset.active_evaluations),
         sum(p.annotation_source == "human" for p in dataset.preferences),
     )
 
@@ -135,6 +148,8 @@ def _evaluation_record(s: ScoredEvaluation) -> dict[str, Any]:
         "error_labels": list(e.error_labels),
         "review_flags": [{"code": f.code, "detail": f.detail} for f in s.flags],
         "needs_review": s.needs_review,
+        "supersedes": e.supersedes,
+        "revision_reason": e.revision_reason,
     }
 
 
@@ -143,6 +158,7 @@ def evaluation_results_csv(inputs: ReportInputs) -> str:
         "evaluation_id", "prompt_id", "response_id", "domain", "reviewer_id",
         "annotation_source", "response_provenance", *DIMENSIONS,
         "n_scored_dimensions", "overall", "error_labels", "review_flags", "needs_review",
+        "supersedes",
     ]  # fmt: skip
     rows = []
     for s in inputs.scored:
@@ -158,6 +174,7 @@ def evaluation_results_csv(inputs: ReportInputs) -> str:
                 ";".join(e.error_labels),
                 ";".join(str(f) for f in s.flags),
                 str(s.needs_review).lower(),
+                e.supersedes or "",
             ]
         )  # fmt: skip
     return _csv_text(header, rows)
@@ -200,6 +217,7 @@ def metadata(inputs: ReportInputs) -> dict[str, Any]:
         "counts": _counts(inputs),
         "provenance": _provenance(inputs.dataset),
         "completeness": _completeness(inputs.dataset),
+        "revision_history": _revision_history(inputs.dataset),
         "genuine_human_evaluations": human_evals,
         "genuine_human_preferences": human_prefs,
     }
@@ -251,10 +269,14 @@ def summary_markdown(inputs: ReportInputs) -> str:
             "below show how the pipeline works; they are not findings about any AI model."
         )
     else:
+        mixed = (human_evals, human_prefs) != (
+            counts["evaluation_records"],
+            counts["pairwise_decisions"],
+        )
         out.append(
             f"> Genuine human annotations: {human_evals} of {counts['evaluation_records']} "
             f"evaluation records and {human_prefs} of {counts['pairwise_decisions']} pairwise "
-            "decisions. Other records are illustrative examples."
+            "decisions." + (" Other records are illustrative examples." if mixed else "")
         )
     if synthetic_responses:
         out += [
@@ -271,6 +293,22 @@ def summary_markdown(inputs: ReportInputs) -> str:
             f"{completeness['prompts_without_responses']} of {counts['prompts']} prompts have no "
             "responses. Aggregates describe only the annotated subset; they are not benchmark "
             "results.",
+        ]
+    history = _revision_history(d)
+    if history["superseded_evaluations"] or history["consistency_rereviews"]:
+        out += [
+            ">",
+            f"> **Revision history:** {history['superseded_evaluations']} superseded "
+            f"evaluation(s) and {history['consistency_rereviews']} consistency re-review(s) are "
+            "kept in the data but excluded from every count and aggregate below, so no review "
+            "is counted twice.",
+        ]
+    if history["active_evaluations_with_rationale_warnings"]:
+        out += [
+            ">",
+            f"> **Rationale quality:** {history['active_evaluations_with_rationale_warnings']} "
+            f"of {counts['evaluation_records']} evaluations have rationale warnings (e.g. "
+            "score-only or generic explanations). Run `ai-eval validate` for details.",
         ]
     if counts["scored_evaluations"] < SMALL_SAMPLE_THRESHOLD:
         out += [
@@ -312,7 +350,11 @@ def summary_markdown(inputs: ReportInputs) -> str:
     definitions = {
         "prompts": ("Prompts", "Distinct user prompts"),
         "candidate_responses": ("Candidate responses", "AI or example answers to those prompts"),
-        "evaluation_records": ("Evaluation records", "Single-response rubric reviews"),
+        "evaluation_records": (
+            "Evaluation records",
+            "Single-response rubric reviews (latest version of each; superseded versions "
+            "and consistency re-reviews excluded)",
+        ),
         "scored_evaluations": (
             "Scored evaluations",
             "Evaluation records with at least one non-null score",

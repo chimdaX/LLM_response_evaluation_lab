@@ -4,7 +4,7 @@ This document is the detailed technical reference for AI Response Evaluation Lab
 the design goals, scope, rubric and scoring policy, data model, validation rules, report
 contents, testing approach, and annotation methodology.
 
-It describes the behaviour of **version 0.2.0**. Items marked *planned* are not implemented yet;
+It describes the behaviour of **version 0.3.0**. Items marked *planned* are not implemented yet;
 see [`roadmap.md`](roadmap.md).
 
 ## Contents
@@ -51,7 +51,7 @@ Design principles:
 
 ## 2. Scope
 
-### Implemented (v0.2.0)
+### Implemented (v0.3.0)
 
 - JSON input validation, both per record and across files.
 - A versioned evaluation rubric with anchored scoring definitions.
@@ -65,6 +65,8 @@ Design principles:
 - Benchmark-building tools: response import with provenance, interactive blind human
   annotation and pairwise sessions with resumable drafts, and progress tracking (see
   [`benchmark_workflow.md`](benchmark_workflow.md)).
+- Rationale quality checks, and append-only evaluation corrections with revision chains
+  (see [Corrections and revision history](#corrections-and-revision-history)).
 - 20 benchmark prompts in `data/benchmark/`. Responses and annotations are still to be
   collected.
 
@@ -193,9 +195,10 @@ responses, evaluations, and preferences are kept separate and linked by stable I
 
 General rules for all records:
 
-- `schema_version` is `"1.0"` or `"1.1"`. Version 1.1 only *adds* optional fields
-  (marked *1.1* below), so every valid 1.0 record is still valid. Those fields are rejected
-  on records that declare `"1.0"`. The collection and annotation tools write `"1.1"`.
+- `schema_version` is `"1.0"`, `"1.1"`, or `"1.2"`. Each version only *adds* optional fields
+  (marked *1.1* or *1.2* below), so every valid record of an older version is still valid.
+  A field is rejected on records that declare an older version than the one that introduced
+  it. The collection and annotation tools write the newest version, `"1.2"`.
 - Unknown fields are rejected, so typos fail loudly.
 - IDs start with a letter or digit, contain only letters, digits, `_`, `.`, and `-`, and are at
   most 64 characters.
@@ -246,6 +249,11 @@ General rules for all records:
 | `overall_rationale` | string | Non-empty |
 | `improved_response` | string or null | Optional corrected answer |
 | `reviewed_at` | date | |
+| `supersedes` | ID or null | *1.2*: the evaluation this record corrects (see below) |
+| `revision_reason` | string or null | *1.2*: required together with `supersedes`; what was wrong |
+| `consistency_check_of` | ID or null | *1.2*: marks a deliberate blind re-review of the same response by the same reviewer; not scored |
+
+A record cannot be both a correction and a consistency re-review, and cannot reference itself.
 
 Scores must be literal integers: `4.0`, `"4"`, and `true` are rejected.
 
@@ -337,16 +345,45 @@ schema validation are excluded, and cross-file checks then run on the remaining 
 | Candidate labels | Unique per prompt |
 | Evaluation → response | `response_id` must exist, and `prompt_id` must match the response's prompt |
 | Preference references | Prompt and both responses must exist; both responses must answer that prompt |
+| Revision history | `supersedes` / `consistency_check_of` must reference an existing evaluation of the same response by the same reviewer; a correction cannot be dated before the record it replaces or supersede a consistency re-review; no record may be superseded twice (no branching); no cycles |
+| One active evaluation | At most one *active* evaluation per reviewer and response. A second review must be a correction or a marked consistency re-review, so nothing is double-counted. |
 | Sensitive content | Heuristic scan for API-key-like strings (`sk-…`, AWS, GitHub tokens), private-key blocks, US SSN-like numbers, and email addresses (reserved domains such as `example.com` are allowed) |
 
 **Warnings** (reported; fail only with `--strict`):
 
 - A prompt has no candidate responses.
-- The same reviewer evaluated the same response more than once. This is allowed for deliberate
-  consistency re-checks.
 - An evaluation's `reviewed_at` is earlier than the prompt's `created_at`.
+- **Rationale quality** (not checked on superseded records). Score-only text (`4`, `4/5`),
+  placeholders (`n/a`, `ok`), text with no specific content, and one rationale reused for three
+  or more dimensions. These are content checks, not length checks. "No specific content" means
+  fewer than two distinct words remain after removing function words and generic evaluative
+  vocabulary. Implemented in `src/ai_response_eval/rationale_quality.py`.
+
+Changed in 0.3.0: two unrelated active evaluations of the same response by the same reviewer
+were a warning in 0.2.0 and are now an error. Use `consistency_check_of` (`annotate --repeat`)
+for deliberate re-reviews.
 
 The sensitive-content scan is a safeguard, not a guarantee that a file contains no personal data.
+Likewise, passing the rationale checks does not make a rationale good; they only catch obvious
+non-explanations.
+
+### Corrections and revision history
+
+Saved evaluations are append-only. A correction is a new record with `supersedes` set to the
+evaluation it replaces and a `revision_reason`. The replaced record stays in the file unchanged.
+Corrections form a single chain, e.g. `EV0001 -> EV0002 -> EV0003`.
+
+- **Active evaluations** are the latest version of each chain, excluding consistency
+  re-reviews. Only active evaluations are used by scoring, comparisons, progress, and reports
+  (`Dataset.active_evaluations`).
+- **Superseded evaluations** and **consistency re-reviews** are kept for traceability and
+  counted separately (`revision_history` in the JSON metadata; a banner in `summary.md`).
+- `ai-eval annotate --revise ID` creates corrections interactively:
+  - only the latest version can be revised, and only by its original reviewer;
+  - each original score is offered as a default the reviewer must confirm;
+  - an earlier rationale is offered as a default only if it passes the rationale checks.
+
+  No score, weight, or decision is changed automatically.
 
 ## 8. Scoring configuration
 
@@ -385,8 +422,8 @@ generation timestamp, the output is byte-for-byte reproducible.
 
 | File | Contents |
 |---|---|
-| `evaluation_results.csv` | One row per evaluation: IDs, domain, reviewer, annotation source, response provenance, the seven scores (blank for null), `n_scored_dimensions`, full-precision `overall`, error labels, review flags, `needs_review` |
-| `evaluation_results.json` | The same per-evaluation data, plus metadata (package version, UTC timestamp, schema and rubric versions, scoring configuration, SHA-256 of rubric, config, and each input file, counts, provenance breakdown, number of genuine human annotations) and a pairwise summary |
+| `evaluation_results.csv` | One row per active evaluation: IDs, domain, reviewer, annotation source, response provenance, the seven scores (blank for null), `n_scored_dimensions`, full-precision `overall`, error labels, review flags, `needs_review`, `supersedes` |
+| `evaluation_results.json` | The same per-evaluation data (plus `supersedes` and `revision_reason`), and metadata: package version, UTC timestamp, schema and rubric versions, scoring configuration, SHA-256 of rubric, config, and each input file, counts, completeness, revision history (superseded records, consistency re-reviews, evaluations with rationale warnings), provenance breakdown, and the number of genuine human annotations. Also a pairwise summary. |
 | `pairwise_results.csv` | One row per preference: human winner and reason, each response's mean overall, the score-based suggestion, and agreement |
 | `summary.md` | Readable summary: data-status banner, reproducibility table, dataset counts with definitions, overall and per-dimension statistics, domain breakdown, flagged items, error-label frequencies, pairwise outcomes, limitations |
 
@@ -396,6 +433,9 @@ Reporting rules:
   reviewers, and pairwise decisions.
 - Every percentage states its denominator. Null scores are excluded and counted as "not assessed".
 - Samples below 30 scored evaluations are labelled as small samples.
+- Only active evaluations are counted. If superseded records or consistency re-reviews exist, a
+  **Revision history** banner says how many were excluded. If active evaluations have rationale
+  warnings, a **Rationale quality** banner says how many.
 - If any candidate response has no evaluation, or any prompt has no responses, the summary
   carries an **Incomplete annotation** banner. The counts also appear in the JSON metadata
   under `completeness`.
@@ -416,7 +456,7 @@ Reporting rules:
 | `ai-eval report --data-dir DIR --output-dir DIR [--config FILE] [--rubric FILE] [--overwrite]` | Write the four report files |
 | `ai-eval status --data-dir DIR` | Benchmark progress counts: collected slots, human evaluations, human preferences, pending IDs, drafts |
 | `ai-eval collect --data-dir DIR [--prompt-id ID] [--label A\|B] [metadata flags] [--text-file FILE]` | Import authentic model responses, interactively or from one file |
-| `ai-eval annotate --data-dir DIR --reviewer-id ID [--response-id ID] [--repeat]` | Interactive, blind, resumable rubric evaluation |
+| `ai-eval annotate --data-dir DIR --reviewer-id ID [--response-id ID \| --revise EVAL_ID] [--repeat]` | Interactive, blind, resumable rubric evaluation; `--revise` appends a correction; `--repeat` records a blind consistency re-review |
 | `ai-eval annotate-pair --data-dir DIR --reviewer-id ID [--prompt-id ID]` | Interactive A/B/tie decisions |
 
 Behaviour:
@@ -447,6 +487,8 @@ paid APIs, the current date, or model output.
 | `tests/test_benchmark.py` | Schema 1.1 compatibility, the committed benchmark prompts, append-only storage, drafts, progress tracking |
 | `tests/test_collection.py` | Response import, provenance, no-overwrite, invalid imports, interactive collection |
 | `tests/test_annotation.py` | Scripted annotation sessions: valid records, invalid scores, missing rationales, error evidence, resume, edit, duplicates, blind display, pairwise decisions |
+| `tests/test_rationale_quality.py` | Score-only, placeholder, generic and repeated rationales; short specific text passing; validation warnings and `--strict` |
+| `tests/test_revisions.py` | Schema 1.2 rules, revision chains, branching/cycle/reference errors, active-only scoring and reporting, and the interactive `--revise` flow (resume, refusals, keeping or changing scores) |
 | `tests/test_cli_benchmark.py` | `status`, `collect`, `annotate`, `annotate-pair` end to end, including attestation, interruption, and reports on a partial benchmark |
 
 Planned CI (GitHub Actions) will run Ruff, pytest, `ai-eval validate`, and a report smoke test.

@@ -154,11 +154,26 @@ def test_all_issues_collected_in_one_pass(records: Records, write_dataset: Write
     assert files == {"evaluations.json", "responses.json", "preferences.json"}
 
 
-def test_repeat_review_is_warning_not_error(records: Records, write_dataset: WriteDataset) -> None:
+def test_duplicate_active_evaluations_rejected(
+    records: Records, write_dataset: WriteDataset
+) -> None:
+    # Two unrelated primary reviews by one reviewer would be double-counted in scores.
     records["evaluations"].append(make_evaluation("E3", "R1A"))
     result = validate_data_dir(write_dataset(records))
-    assert result.ok
-    assert any("evaluated this response 2 times" in w.message for w in result.warnings)
+    assert any(
+        "has 2 active evaluations of this response (E1, E3)" in i.message for i in result.errors
+    )
+
+
+def test_marked_consistency_rereview_is_allowed(
+    records: Records, write_dataset: WriteDataset
+) -> None:
+    records["evaluations"].append(
+        make_evaluation("E3", "R1A", schema_version="1.2", consistency_check_of="E1")
+    )
+    result = validate_data_dir(write_dataset(records))
+    assert result.ok, [str(i) for i in result.issues]
+    assert [e.evaluation_id for e in result.dataset.active_evaluations] == ["E1", "E2"]
 
 
 def test_review_before_prompt_creation_warns(records: Records, write_dataset: WriteDataset) -> None:

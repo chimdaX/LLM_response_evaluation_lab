@@ -16,7 +16,7 @@ from ai_response_eval.annotation import (
     preference_queue,
 )
 from ai_response_eval.interactive import ScriptedConsole
-from ai_response_eval.rubric import DIMENSIONS
+from ai_response_eval.rubric import DIMENSIONS, SCHEMA_VERSION
 from ai_response_eval.storage import DraftStore
 from ai_response_eval.validation import validate_data_dir
 from tests.conftest import TODAY
@@ -27,7 +27,7 @@ def dimension_answers(scores: dict[str, str] | None = None) -> list[str]:
     scores = scores or {}
     answers = []
     for d in DIMENSIONS:
-        answers += [scores.get(d, "4"), f"Rationale for {d}."]
+        answers += [scores.get(d, "4"), f"Observed {d} evidence in paragraph two."]
     return answers
 
 
@@ -37,7 +37,7 @@ def full_evaluation(
     answers = ["", *dimension_answers(scores)]  # "" reveals the response
     for error in errors or []:
         answers += ["y", *error]
-    answers += ["n", "Overall rationale.", ".", "s"]
+    answers += ["n", "Explains the mechanism; exceeds the word limit.", ".", "s"]
     return answers
 
 
@@ -68,10 +68,10 @@ def test_complete_evaluation_is_saved_as_valid_human_record(bench_dir: Path) -> 
     assert saved == record
     assert saved["evaluation_id"] == "EV0001"
     assert saved["annotation_source"] == "human"
-    assert saved["schema_version"] == "1.1"
+    assert saved["schema_version"] == SCHEMA_VERSION
     assert saved["reviewed_at"] == "2026-10-12"
     assert saved["scores"]["reasoning"] is None
-    assert saved["score_rationales"]["reasoning"] == "Rationale for reasoning."
+    assert saved["score_rationales"]["reasoning"] == "Observed reasoning evidence in paragraph two."
     assert validate_data_dir(bench_dir).ok
 
 
@@ -87,9 +87,9 @@ def test_invalid_score_entries_are_reprompted(bench_dir: Path) -> None:
 
 def test_empty_rationale_is_rejected(bench_dir: Path) -> None:
     answers = full_evaluation()
-    answers[2:3] = ["", "   ", "Accuracy rationale."]
+    answers[2:3] = ["", "   ", "Cites the WMO 30-year period."]
     record, console = _run(bench_dir, answers)
-    assert record["score_rationales"]["accuracy"] == "Accuracy rationale."
+    assert record["score_rationales"]["accuracy"] == "Cites the WMO 30-year period."
     assert console.text.count("A response is required here.") == 2
 
 
@@ -158,13 +158,19 @@ def test_edit_before_saving(bench_dir: Path) -> None:
 
 def test_duplicate_evaluation_refused_unless_repeat(bench_dir: Path) -> None:
     _run(bench_dir, full_evaluation())
-    with pytest.raises(AnnotationError, match="already evaluated"):
+    with pytest.raises(
+        AnnotationError, match=r"already evaluated P1-A \(EV0001\).*--revise EV0001"
+    ):
         _run(bench_dir, full_evaluation())
-    record, _ = _run(bench_dir, full_evaluation(), allow_repeat=True)
+    record, console = _run(bench_dir, full_evaluation(), allow_repeat=True)
     assert record["evaluation_id"] == "EV0002"
+    assert record["consistency_check_of"] == "EV0001"
+    assert "earlier review EV0001 is not shown" in console.text
+    assert "Observed accuracy evidence" not in console.text.split("RESPONSE")[0]
     result = validate_data_dir(bench_dir)
-    assert result.ok
-    assert any("evaluated this response 2 times" in w.message for w in result.warnings)
+    assert result.ok, [str(i) for i in result.issues]
+    # The re-review is kept but not scored: exactly one active evaluation remains.
+    assert [e.evaluation_id for e in result.dataset.active_evaluations] == ["EV0001"]
 
 
 def test_existing_records_are_preserved(bench_dir: Path) -> None:

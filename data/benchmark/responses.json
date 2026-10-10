@@ -1,1 +1,28 @@
-[]
+[
+  {
+    "schema_version": "1.1",
+    "response_id": "B001-A",
+    "prompt_id": "B001",
+    "candidate_label": "A",
+    "response_text": "Weather is the day-to-day condition of the atmosphere, including temperature, rain, wind, and sunshine. Climate is the average pattern of weather in a place over a long period, usually 30 years or more. For example, a rainy day is weather, while a region’s typical hot, dry summers are part of its climate.",
+    "model_name": "ChatGPT",
+    "provider": "OPenAI chatGPT",
+    "collection_method": "web_chat",
+    "generation_settings": null,
+    "provenance": "model_output",
+    "generated_at": "2026-10-10"
+  },
+  {
+    "schema_version": "1.1",
+    "response_id": "B001-B",
+    "prompt_id": "B001",
+    "candidate_label": "B",
+    "response_text": "Weather is the short-term state of the atmosphere at a particular place and time: today's temperature, rain, wind, and humidity, which can change from hour to hour. Climate is the long-term pattern of that weather, usually averaged over 30 years or more for a region, including its typical temperatures, seasonal rainfall, and how often extremes occur. A common way to put it is that climate is what you expect, and weather is what you get.",
+    "model_name": "Opus 5.5 medium",
+    "provider": "Anthropic Claude",
+    "collection_method": "web_chat",
+    "generation_settings": null,
+    "provenance": "model_output",
+    "generated_at": "2026-10-10"
+  }
+]

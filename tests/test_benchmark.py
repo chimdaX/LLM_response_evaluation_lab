@@ -75,13 +75,15 @@ def test_v11_invalid_values(record: dict, field: str) -> None:
 # --- committed benchmark -----------------------------------------------------------------
 
 
-def test_committed_benchmark_is_valid_and_unannotated() -> None:
+def test_committed_benchmark_integrity() -> None:
+    """Holds at every stage of collection: real outputs and human annotations only."""
     result = validate_data_dir(BENCHMARK_DIR)
     assert result.ok, [str(i) for i in result.errors]
     d = result.dataset
     assert len(d.prompts) == 20
-    # Integrity: nothing may be pre-filled on behalf of the human evaluator.
-    assert d.responses == [] and d.evaluations == [] and d.preferences == []
+    assert all(r.provenance == "model_output" for r in d.responses)
+    assert all(e.annotation_source == "human" for e in d.evaluations)
+    assert all(p.annotation_source == "human" for p in d.preferences)
 
 
 def test_benchmark_prompts_are_diverse_and_documented() -> None:

@@ -14,8 +14,8 @@ from types import MappingProxyType
 from typing import Literal, get_args
 
 RUBRIC_VERSION = "1.0"
-SCHEMA_VERSION = "1.1"  # newest record schema; "1.0" records remain valid
-SUPPORTED_SCHEMA_VERSIONS: tuple[str, ...] = ("1.0", "1.1")
+SCHEMA_VERSION = "1.2"  # newest record schema; older records remain valid
+SUPPORTED_SCHEMA_VERSIONS: tuple[str, ...] = ("1.0", "1.1", "1.2")
 
 SCORE_MIN = 1
 SCORE_MAX = 5

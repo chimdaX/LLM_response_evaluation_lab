@@ -71,16 +71,21 @@ Score = Annotated[int, Field(ge=SCORE_MIN, le=SCORE_MAX, strict=True)]
 class _Record(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    # 1.1 adds optional prompt metadata and response collection metadata; nothing was
-    # removed or redefined, so every valid 1.0 record is still valid.
-    schema_version: Literal["1.0", "1.1"]
+    # Each version only ADDS optional fields; nothing is removed or redefined, so every
+    # valid record of an older version is still valid.
+    #   1.1: prompt metadata (difficulty, objectives) and response collection metadata
+    #   1.2: evaluation corrections (supersedes, revision_reason) and consistency
+    #        re-reviews (consistency_check_of)
+    schema_version: Literal["1.0", "1.1", "1.2"]
 
-    def _require_v11_for(self, *fields: str) -> None:
-        """Reject 1.1-only fields on records that declare schema 1.0."""
-        if self.schema_version == "1.0":
+    def _require_version(self, minimum: str, *fields: str) -> None:
+        """Reject fields introduced in ``minimum`` on records declaring an older version."""
+        if tuple(map(int, self.schema_version.split("."))) < tuple(map(int, minimum.split("."))):
             used = [f for f in fields if f in self.model_fields_set]
             if used:
-                raise ValueError(f"field(s) {', '.join(used)} require schema_version '1.1'")
+                raise ValueError(
+                    f"field(s) {', '.join(used)} require schema_version '{minimum}' or later"
+                )
 
 
 class Prompt(_Record):
@@ -96,7 +101,7 @@ class Prompt(_Record):
 
     @model_validator(mode="after")
     def _check_version_fields(self) -> Prompt:
-        self._require_v11_for("difficulty", "evaluation_objectives")
+        self._require_version("1.1", "difficulty", "evaluation_objectives")
         return self
 
 
@@ -116,7 +121,7 @@ class CandidateResponse(_Record):
 
     @model_validator(mode="after")
     def _check_provenance(self) -> CandidateResponse:
-        self._require_v11_for("provider", "collection_method", "generation_settings")
+        self._require_version("1.1", "provider", "collection_method", "generation_settings")
         # Guard against attributing hand-written examples to a real model and vice versa.
         if self.provenance == "synthetic_example" and self.model_name != EXAMPLE_MODEL_NAME:
             raise ValueError(
@@ -172,6 +177,24 @@ class Evaluation(_Record):
     overall_rationale: NonEmptyText
     improved_response: str | None = None
     reviewed_at: IsoDate
+    # Schema 1.2 (optional). A correction is a NEW record that replaces an earlier one;
+    # the earlier record is kept unchanged as revision history.
+    supersedes: Identifier | None = None
+    revision_reason: NonEmptyText | None = None
+    # Schema 1.2 (optional). A deliberate re-review of the same response by the same
+    # reviewer, kept for consistency analysis and excluded from scoring.
+    consistency_check_of: Identifier | None = None
+
+    @model_validator(mode="after")
+    def _check_revision_fields(self) -> Evaluation:
+        self._require_version("1.2", "supersedes", "revision_reason", "consistency_check_of")
+        if (self.supersedes is None) != (self.revision_reason is None):
+            raise ValueError("supersedes and revision_reason must be given together")
+        if self.supersedes is not None and self.consistency_check_of is not None:
+            raise ValueError("a record cannot be both a correction and a consistency re-review")
+        if self.evaluation_id in (self.supersedes, self.consistency_check_of):
+            raise ValueError("an evaluation cannot reference itself")
+        return self
 
     @field_validator("scores")
     @classmethod

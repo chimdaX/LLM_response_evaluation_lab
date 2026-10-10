@@ -30,6 +30,8 @@ class BenchmarkProgress:
     human_preferences: int
     pairs_with_human_preference: int
     non_human_preferences: int
+    superseded_evaluations: int = 0
+    consistency_rereviews: int = 0
     drafts: list[str] = field(default_factory=list)
 
     @property
@@ -44,7 +46,8 @@ class BenchmarkProgress:
 
 
 def compute_progress(dataset: Dataset, drafts: DraftStore | None = None) -> BenchmarkProgress:
-    human_evals = [e for e in dataset.evaluations if e.annotation_source == "human"]
+    active = dataset.active_evaluations
+    human_evals = [e for e in active if e.annotation_source == "human"]
     evaluated = {e.response_id for e in human_evals}
     human_prefs = [p for p in dataset.preferences if p.annotation_source == "human"]
     compared = {(p.response_a_id, p.response_b_id) for p in human_prefs}
@@ -59,7 +62,9 @@ def compute_progress(dataset: Dataset, drafts: DraftStore | None = None) -> Benc
         pending_response_ids=[s.response_id for s in pending_slots(dataset)],
         human_evaluations=len(human_evals),
         responses_with_human_evaluation=len(evaluated & set(dataset.responses_by_id)),
-        non_human_evaluations=len(dataset.evaluations) - len(human_evals),
+        non_human_evaluations=len(active) - len(human_evals),
+        superseded_evaluations=len(dataset.superseded_ids),
+        consistency_rereviews=len(dataset.consistency_checks),
         unevaluated_response_ids=sorted(set(dataset.responses_by_id) - evaluated),
         complete_pairs=len(pairs),
         human_preferences=len(human_prefs),
@@ -95,6 +100,11 @@ def format_progress(p: BenchmarkProgress) -> str:
         lines.append(
             f"  Non-human records (not counted):   {p.non_human_evaluations} evaluations, "
             f"{p.non_human_preferences} preferences"
+        )
+    if p.superseded_evaluations or p.consistency_rereviews:
+        lines.append(
+            f"  Revision history (not counted):    {p.superseded_evaluations} superseded, "
+            f"{p.consistency_rereviews} consistency re-reviews"
         )
     lines += [
         "",
