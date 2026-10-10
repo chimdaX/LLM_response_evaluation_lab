@@ -210,3 +210,35 @@ def test_build_reports_does_not_touch_source_files(
     before = {p.name: p.read_bytes() for p in data_dir.iterdir()}
     write_reports(_reports(data_dir, config), tmp_path / "out", data_dir)
     assert {p.name: p.read_bytes() for p in data_dir.iterdir()} == before
+
+
+# --- Phase 2: completeness banners ----------------------------------------------------------
+
+
+def test_no_annotations_banner(write_dataset, config: ScoringConfig) -> None:
+    records: Records = {"prompts": [make_prompt()], "responses": [make_response()],
+                        "evaluations": [], "preferences": []}  # fmt: skip
+    summary = _reports(write_dataset(records), config)["summary.md"]
+    assert "No annotations yet" in summary
+    assert "Demonstration data only" not in summary  # must not claim the data is illustrative
+    assert "Incomplete annotation:** 1 of 1 candidate responses have no evaluation" in summary
+
+
+def test_incomplete_banner_and_metadata(
+    records: Records, write_dataset, config: ScoringConfig
+) -> None:
+    records["prompts"].append(make_prompt("P2"))
+    records["evaluations"] = records["evaluations"][:1]
+    reports = _reports(write_dataset(records), config)
+    assert (
+        "1 of 2 candidate responses have no evaluation and 1 of 2 prompts" in reports["summary.md"]
+    )
+    meta = json.loads(reports["evaluation_results.json"])["metadata"]
+    assert meta["completeness"] == {
+        "responses_without_evaluation": 1,
+        "prompts_without_responses": 1,
+    }
+
+
+def test_complete_dataset_has_no_incomplete_banner(config: ScoringConfig) -> None:
+    assert "Incomplete annotation" not in _reports(EXAMPLES_DIR, config)["summary.md"]

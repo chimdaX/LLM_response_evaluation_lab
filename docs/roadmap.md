@@ -9,7 +9,7 @@ values, error rates, or CI results are reported here until they actually exist.
 | Phase | Status |
 |---|---|
 | 1. Foundation | **Complete** (v0.1.0) |
-| 2. Evaluation workflow | Partly complete: reporting, pairwise handling, and taxonomy were delivered in Phase 1; the annotation guide and the genuine benchmark are pending |
+| 2. Evaluation workflow | Tooling complete (v0.2.0); **collecting responses and human annotation have not started** |
 | 3. GitHub-ready release | Not started (MIT license added) |
 | 4. Research extension | Not started |
 
@@ -28,13 +28,17 @@ values, error rates, or CI results are reported here until they actually exist.
 - [x] Error taxonomy and evidence tracking. *(Delivered in Phase 1.)*
 - [x] Pairwise preference handling. *(First version delivered in Phase 1.)*
 - [x] CSV, JSON, and Markdown reporting. *(First version delivered in Phase 1.)*
-- [ ] Annotation guide (`docs/annotation_guide.md`): a step-by-step reviewer workflow, a record
-      template, and worked edge cases.
-- [ ] Methodology notes: sampling of prompts, the reviewer consistency check, and the rubric
-      revision log.
-- [ ] Manually review the first 20 benchmark items into `data/benchmark/`, each with
-      `annotation_source: "human"` and genuine sources. These must be real reviews; artificial
-      "human evaluations" will not be generated to reach a target count.
+- [x] Annotation guide ([`annotation_guide.md`](annotation_guide.md)).
+- [x] Benchmark workflow ([`benchmark_workflow.md`](benchmark_workflow.md)) and manual
+      record templates (`templates/`).
+- [x] 20 benchmark prompts (`B001`–`B020`) with difficulty, evaluation objectives, and
+      independently checkable reference notes.
+- [x] Tooling: `collect`, `annotate`, `annotate-pair`, `status`; schema 1.1 (additive
+      provenance and prompt metadata); incompleteness banners in reports.
+- [ ] Collect 40 authentic responses (2 per prompt).
+- [ ] Complete 40 human evaluations and 20 pairwise decisions. These must be real reviews;
+      artificial "human evaluations" will not be generated to reach a target count.
+- [ ] Consistency re-review of a subset after a time gap, and a rubric revision log.
 
 ## Phase 3: GitHub-ready release
 
@@ -68,7 +72,7 @@ exist. Any later regression thresholds must use a documented baseline and explai
 | Milestone | Deliverable | Acceptance criteria | Status |
 |---|---|---|---|
 | M1: Foundation | Structure, rubric, schemas, CLI | Valid example input produces a deterministic result | Done |
-| M2: Human evaluation | Annotation workflow and benchmark | At least 20 genuinely reviewed items with rationales | Pending |
+| M2: Human evaluation | Annotation workflow and benchmark | At least 20 genuinely reviewed items with rationales | Workflow done; reviews pending |
 | M3: Reporting | CSV, JSON, Markdown outputs | Reports accurately summarize valid scored examples | Done (first version) |
 | M4: Comparisons | Pairwise preference workflow | A/B/tie decisions with reasons; position labels not treated as quality evidence | Done (first version) |
 | M5: Quality engineering | Tests, lint, GitHub Actions | All automated checks pass on a clean clone in CI | Tests and lint done; CI pending |

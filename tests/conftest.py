@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import json
 from collections.abc import Callable
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -148,3 +149,43 @@ def config() -> ScoringConfig:
         ),
         pairwise_tie_margin=0.25,
     )
+
+
+# --- Phase 2 (benchmark workflow) helpers ------------------------------------------------
+
+BENCHMARK_DIR = REPO_ROOT / "data" / "benchmark"
+TODAY = date(2026, 10, 12)
+
+
+def make_model_response(
+    prompt_id: str = "P1", label: str = "A", **overrides: Any
+) -> dict[str, Any]:
+    record = {
+        "schema_version": "1.1",
+        "response_id": f"{prompt_id}-{label}",
+        "prompt_id": prompt_id,
+        "candidate_label": label,
+        "response_text": "Blue light is scattered more strongly by air molecules.",
+        "model_name": "vendor-model-x",
+        "provider": "Vendor Chat",
+        "collection_method": "web_chat",
+        "generation_settings": None,
+        "provenance": "model_output",
+        "generated_at": "2026-10-10",
+    }
+    return record | overrides
+
+
+def benchmark_records() -> Records:
+    """Two prompts; P1 has both candidates collected, P2 has none. No annotations yet."""
+    return {
+        "prompts": [make_prompt("P1"), make_prompt("P2", domain="mathematics")],
+        "responses": [make_model_response("P1", "A"), make_model_response("P1", "B")],
+        "evaluations": [],
+        "preferences": [],
+    }
+
+
+@pytest.fixture
+def bench_dir(tmp_path: Path) -> Path:
+    return write_records(tmp_path / "bench", copy.deepcopy(benchmark_records()))

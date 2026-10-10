@@ -4,7 +4,7 @@ This document is the detailed technical reference for AI Response Evaluation Lab
 the design goals, scope, rubric and scoring policy, data model, validation rules, report
 contents, testing approach, and annotation methodology.
 
-It describes the behaviour of **version 0.1.0**. Items marked *planned* are not implemented yet;
+It describes the behaviour of **version 0.2.0**. Items marked *planned* are not implemented yet;
 see [`roadmap.md`](roadmap.md).
 
 ## Contents
@@ -51,7 +51,7 @@ Design principles:
 
 ## 2. Scope
 
-### Implemented (v0.1.0)
+### Implemented (v0.2.0)
 
 - JSON input validation, both per record and across files.
 - A versioned evaluation rubric with anchored scoring definitions.
@@ -61,7 +61,12 @@ Design principles:
 - CSV, JSON, and Markdown report generation.
 - A Python CLI (`ai-eval`).
 - Unit and CLI tests, and Ruff linting.
-- A synthetic demonstration dataset kept separate from the (empty) benchmark directory.
+- A synthetic demonstration dataset, kept separate from the genuine benchmark.
+- Benchmark-building tools: response import with provenance, interactive blind human
+  annotation and pairwise sessions with resumable drafts, and progress tracking (see
+  [`benchmark_workflow.md`](benchmark_workflow.md)).
+- 20 benchmark prompts in `data/benchmark/`. Responses and annotations are still to be
+  collected.
 
 ### Out of scope
 
@@ -188,7 +193,9 @@ responses, evaluations, and preferences are kept separate and linked by stable I
 
 General rules for all records:
 
-- `schema_version` must be `"1.0"`.
+- `schema_version` is `"1.0"` or `"1.1"`. Version 1.1 only *adds* optional fields
+  (marked *1.1* below), so every valid 1.0 record is still valid. Those fields are rejected
+  on records that declare `"1.0"`. The collection and annotation tools write `"1.1"`.
 - Unknown fields are rejected, so typos fail loudly.
 - IDs start with a letter or digit, contain only letters, digits, `_`, `.`, and `-`, and are at
   most 64 characters.
@@ -205,6 +212,8 @@ General rules for all records:
 | `constraints` | list of strings | Explicit requirements; may be empty |
 | `reference_notes` | string or null | Optional guidance for reviewers |
 | `created_at` | date | |
+| `difficulty` | `easy`, `moderate`, `challenging`, or null | *1.1*, optional |
+| `evaluation_objectives` | list of strings | *1.1*, optional: what the prompt is designed to test |
 
 ### `responses.json`
 
@@ -217,6 +226,9 @@ General rules for all records:
 | `model_name` | string | Must be `example-only` for synthetic examples; must be the real model for model output |
 | `provenance` | `synthetic_example` or `model_output` | |
 | `generated_at` | date or null | Required when `provenance` is `model_output` |
+| `provider` | string or null | *1.1*, optional: provider or product, e.g. "OpenAI ChatGPT" |
+| `collection_method` | `web_chat`, `api`, `local_model`, `other`, or null | *1.1*, optional |
+| `generation_settings` | string or null | *1.1*, optional: only settings actually known |
 
 ### `evaluations.json`
 
@@ -384,6 +396,10 @@ Reporting rules:
   reviewers, and pairwise decisions.
 - Every percentage states its denominator. Null scores are excluded and counted as "not assessed".
 - Samples below 30 scored evaluations are labelled as small samples.
+- If any candidate response has no evaluation, or any prompt has no responses, the summary
+  carries an **Incomplete annotation** banner. The counts also appear in the JSON metadata
+  under `completeness`.
+- A dataset with no evaluations or preferences at all is reported as **No annotations yet**.
 - If no evaluation or preference is a genuine human annotation, the summary opens with a
   "Demonstration data only" banner.
 - Existing report files are replaced only with `--overwrite`. Reports cannot be written into
@@ -398,15 +414,22 @@ Reporting rules:
 | `ai-eval score --data-dir DIR [--config FILE] [--json]` | Print overall scores, scored-dimension counts, and review flags |
 | `ai-eval compare --data-dir DIR [--config FILE]` | Print human preferences with reasons, alongside the score-based suggestion |
 | `ai-eval report --data-dir DIR --output-dir DIR [--config FILE] [--rubric FILE] [--overwrite]` | Write the four report files |
+| `ai-eval status --data-dir DIR` | Benchmark progress counts: collected slots, human evaluations, human preferences, pending IDs, drafts |
+| `ai-eval collect --data-dir DIR [--prompt-id ID] [--label A\|B] [metadata flags] [--text-file FILE]` | Import authentic model responses, interactively or from one file |
+| `ai-eval annotate --data-dir DIR --reviewer-id ID [--response-id ID] [--repeat]` | Interactive, blind, resumable rubric evaluation |
+| `ai-eval annotate-pair --data-dir DIR --reviewer-id ID [--prompt-id ID]` | Interactive A/B/tie decisions |
 
 Behaviour:
 
 - `--help` is available for every command.
 - Commands other than `validate` refuse to run on invalid data.
-- No command makes network calls or modifies files in `--data-dir`.
+- No command makes network calls. The analysis commands (`validate`, `score`, `compare`,
+  `report`, `status`) never modify `--data-dir`. `collect`, `annotate`, and `annotate-pair`
+  only append validated records, using atomic file replacement, plus working drafts in
+  `--data-dir/.drafts/`. They never change or delete existing records.
 - Output is sorted by ID for deterministic diffs.
 - Exit codes: `0` success; `1` invalid data (or warnings under `--strict`); `2` usage,
-  configuration, or file-system error.
+  configuration, or file-system error; `130` interactive session interrupted (drafts kept).
 
 ## 12. Testing and quality gates
 
@@ -421,6 +444,10 @@ paid APIs, the current date, or model output.
 | `tests/test_comparisons.py` | Suggestions and tie margins, ties, human/score disagreement, summary counts |
 | `tests/test_reporting.py` | CSV/JSON/Markdown content, determinism, domain aggregation, flagged items under high averages, empty datasets, overwrite and data-directory protection |
 | `tests/test_cli.py` | Help text, exit codes, error messages, and end-to-end report generation |
+| `tests/test_benchmark.py` | Schema 1.1 compatibility, the committed benchmark prompts, append-only storage, drafts, progress tracking |
+| `tests/test_collection.py` | Response import, provenance, no-overwrite, invalid imports, interactive collection |
+| `tests/test_annotation.py` | Scripted annotation sessions: valid records, invalid scores, missing rationales, error evidence, resume, edit, duplicates, blind display, pairwise decisions |
+| `tests/test_cli_benchmark.py` | `status`, `collect`, `annotate`, `annotate-pair` end to end, including attestation, interruption, and reports on a partial benchmark |
 
 Planned CI (GitHub Actions) will run Ruff, pytest, `ai-eval validate`, and a report smoke test.
 CI will fail on invalid inputs, broken tests, or lint errors. It will not fail on human quality
@@ -450,7 +477,8 @@ agreement for pairwise judgments. Agreement does not prove factual correctness.
 | Language | Python 3.11+ | |
 | Packaging | `pyproject.toml`, `src/` layout, setuptools | Standard, installable with `pip install -e` |
 | Schemas | Pydantic v2 | Typed validation with precise error locations; the only runtime dependency |
-| CLI | `argparse` (standard library) | No extra dependency for four subcommands |
+| CLI | `argparse` (standard library) | No extra dependency |
+| Annotation interface | Interactive terminal prompts (standard library) | Works anywhere Python runs; no GUI dependency; fully testable with scripted input |
 | Analytics | Standard library (`statistics`, `csv`, `json`, `hashlib`) | Sufficient at the current scale |
 | Tests / lint | pytest, Ruff | |
 

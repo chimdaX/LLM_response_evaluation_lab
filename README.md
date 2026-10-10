@@ -3,9 +3,11 @@
 A reproducible, human-first framework for evaluating AI-generated answers: rubric-based scoring,
 pairwise comparison, error classification, and traceable reports.
 
-> **Status:** v0.1.0. The offline core (validation, scoring, comparison, reporting, CLI) is
-> implemented and tested. The repository ships a small **synthetic demonstration dataset**;
-> it contains no real model benchmark results yet.
+> **Status:** v0.2.0. The offline core (validation, scoring, comparison, reporting) and the
+> benchmark-building tools (response collection, blind human annotation, progress tracking)
+> are implemented and tested. The benchmark's 20 prompts are ready; **no responses have been
+> collected or evaluated yet**, so there are no benchmark results. A small synthetic
+> demonstration dataset shows the pipeline end to end.
 
 ## The problem
 
@@ -34,6 +36,8 @@ judgments transparently. It never claims to verify facts automatically.
 | **Error classification** | A 22-label taxonomy across 7 categories (factual, hallucination, instruction, reasoning, quality, calibration, safety). Each error carries an evidence status and, when verified, a source. |
 | **Pairwise comparison** | Human A/B/tie preferences with reasons, shown next to a clearly labelled, system-generated score-based suggestion as a consistency check. |
 | **Provenance tracking** | Each response records whether it is a synthetic example or real model output. Each evaluation records whether it is a genuine human annotation or an illustrative example. |
+| **Response collection** | Imports authentic model outputs with their provenance (model, provider, collection method, date, known settings). Existing responses are never replaced. |
+| **Human annotation tools** | Interactive, blind (model names hidden), resumable evaluation and A/B/tie sessions that validate every entry and save append-only records in the existing schema. |
 | **Reproducible reports** | CSV, JSON, and Markdown reports with SHA-256 hashes of every input, the rubric, and the scoring configuration. |
 
 ## How it works
@@ -143,8 +147,39 @@ flags surface it explicitly.
 > any model performs. Generated reports state this in a banner computed from the data itself.
 
 The examples cover five domains: science, mathematics, uncertainty (a fabricated source),
-multi-constraint instruction following, and safety. Genuine human-reviewed benchmark data will go
-in [`data/benchmark/`](data/benchmark/), which is currently empty.
+multi-constraint instruction following, and safety.
+
+## Building the benchmark
+
+[`data/benchmark/`](data/benchmark/) holds the genuine benchmark. It contains 20 prompts
+(`B001`–`B020`) across ten areas: general knowledge, science, mathematics, logical reasoning,
+writing, instruction following, coding, factual verification (history and geography),
+uncertainty, and safety. Prompts range from easy to challenging. Each one records what it is
+designed to test and includes reference notes that name an independent way to verify the answer.
+
+The target is two authentic model responses per prompt (40), one human evaluation per
+response (40), and one pairwise decision per prompt (20). These are targets; current progress
+is always available from `ai-eval status`.
+
+```bash
+ai-eval status        --data-dir data/benchmark                            # progress counts only
+ai-eval collect       --data-dir data/benchmark                            # import model responses
+ai-eval annotate      --data-dir data/benchmark --reviewer-id reviewer_01  # evaluate each response
+ai-eval annotate-pair --data-dir data/benchmark --reviewer-id reviewer_01  # A/B/tie decisions
+```
+
+Integrity safeguards:
+- Responses are collected manually from any chat interface or local model and stored with
+  provenance `model_output`.
+- Annotations are marked `human` only after the reviewer confirms that the judgments are
+  their own.
+- Model names are hidden during review.
+- Every answer is saved to a resumable draft.
+- Records are append-only.
+- Reports on a partly annotated benchmark are labelled **Incomplete annotation**.
+
+See the [benchmark workflow](docs/benchmark_workflow.md) for the step-by-step procedure, and
+the [annotation guide](docs/annotation_guide.md) for how to judge responses.
 
 ## Installation
 
@@ -215,7 +250,9 @@ ai-eval report --data-dir data/examples --output-dir reports --overwrite   # rep
 ```
 
 Every command supports `--help`. Exit codes: `0` success, `1` invalid data, `2` usage or
-configuration error. No command makes network calls or modifies the input data.
+configuration error, `130` interrupted interactive session (drafts are kept). No command makes
+network calls. The analysis commands never modify the input data. The benchmark-building
+commands only append new records.
 
 ## Reports
 
@@ -239,9 +276,11 @@ small samples are labelled as such, and existing report files are replaced only 
 │   └── scoring.json            # Dimension weights, review-flag policy, pairwise tie margin
 ├── data/
 │   ├── examples/               # Synthetic demonstration dataset (4 JSON files)
-│   └── benchmark/              # Reserved for genuine human-reviewed data (empty)
+│   └── benchmark/              # Genuine benchmark: 20 prompts; responses and annotations pending
 ├── docs/
 │   ├── SETUP.md                # Installation for Windows / Linux / macOS
+│   ├── annotation_guide.md     # How to evaluate responses consistently and defensibly
+│   ├── benchmark_workflow.md   # Collecting responses, annotating, tracking progress
 │   ├── specification.md        # Data model, validation rules, scoring, reports
 │   └── roadmap.md              # Status, planned work, optional extensions
 ├── reports/                    # Generated output (git-ignored)
@@ -254,8 +293,14 @@ small samples are labelled as such, and existing report files are replaced only 
 │   ├── scoring.py              # Weighted scoring, review flags, config loading
 │   ├── comparisons.py          # Pairwise preferences and score-based suggestions
 │   ├── reporting.py            # CSV / JSON / Markdown report generation
+│   ├── collection.py           # Importing authentic model responses
+│   ├── annotation.py           # Interactive human evaluation and pairwise sessions
+│   ├── progress.py             # Benchmark progress tracking
+│   ├── storage.py              # Append-only atomic writes and resumable drafts
+│   ├── interactive.py          # Terminal prompt helpers
 │   └── cli.py                  # `ai-eval` command-line interface
-├── tests/                      # pytest suite (schemas, validation, scoring, comparisons, reporting, CLI)
+├── templates/                  # JSON templates for manual record entry
+├── tests/                      # pytest suite
 ├── pyproject.toml
 └── LICENSE
 ```
@@ -267,7 +312,7 @@ python -m pytest
 ruff check .
 ```
 
-**Verified results (v0.1.0):** all **126 tests pass** and `ruff check .` reports no issues, run
+**Verified results (v0.2.0):** all **190 tests pass** and `ruff check .` reports no issues, run
 locally on Python 3.12.3 (Linux/WSL). Continuous integration is not set up yet, so there is no
 CI status to report.
 
@@ -275,19 +320,31 @@ The tests use small deterministic fixtures and need no network access or API key
 invalid score types and ranges, null-score denominators, broken cross-file references,
 duplicate IDs and JSON keys, ties and same-response comparisons, empty datasets, deterministic
 output, domain aggregation, and critical flags that must stay visible under high averages.
+For the benchmark tools, they also cover:
+- annotation sessions driven by scripted input, including invalid scores, missing
+  rationales, and unknown labels;
+- interrupted and resumed drafts;
+- duplicate-evaluation refusal and blind display;
+- response provenance and no-overwrite import;
+- progress on incomplete benchmarks;
+- backward compatibility of schema 1.0 data.
 
 ## Current scope and future work
 
 **Available now**
 
 - Rubric v1.0, schemas, validation, scoring, review flags, pairwise comparison, and reports.
-- The `ai-eval` CLI with `validate`, `score`, `compare`, and `report`.
-- The synthetic demonstration dataset and test suite.
+- Benchmark tools: `collect`, `annotate`, `annotate-pair`, and `status`, plus an annotation
+  guide and a workflow guide.
+- 20 benchmark prompts with reference notes; the synthetic demonstration dataset; the test
+  suite.
+
+**Next (in progress)**
+
+- Collecting 40 authentic responses and completing 40 human evaluations and 20 pairwise
+  decisions.
 
 **Planned**
-
-- An annotation guide and methodology notes.
-- A first set of 20 genuinely human-reviewed benchmark items.
 - GitHub Actions CI: lint, tests, data validation, and a report smoke test.
 - A larger benchmark across more domains, and a study of candidate-order bias.
 
@@ -314,6 +371,8 @@ See [`docs/roadmap.md`](docs/roadmap.md) for details.
 | Document | Contents |
 |---|---|
 | [`docs/SETUP.md`](docs/SETUP.md) | Installation and troubleshooting on Windows, Linux, and macOS |
+| [`docs/annotation_guide.md`](docs/annotation_guide.md) | How to evaluate responses: requirements, dimensions, evidence, bias, rationales |
+| [`docs/benchmark_workflow.md`](docs/benchmark_workflow.md) | Step-by-step collection, annotation, and progress tracking |
 | [`rubrics/rubric_v1.md`](rubrics/rubric_v1.md) | Full rubric: score anchors per dimension, review flags, error taxonomy, evidence statuses |
 | [`docs/specification.md`](docs/specification.md) | Data model, validation rules, scoring configuration, report formats, annotation methodology |
 | [`docs/roadmap.md`](docs/roadmap.md) | Phase status, planned work, LLM-judge design, development principles |

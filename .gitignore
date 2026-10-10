@@ -27,3 +27,8 @@ reports/*
 Thumbs.db
 .vscode/
 .idea/
+
+# Benchmark working files: annotation drafts and pasted raw responses
+# (imported response text is stored in responses.json)
+data/**/.drafts/
+data/**/raw_responses/
