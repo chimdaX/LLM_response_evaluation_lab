@@ -14,7 +14,8 @@ from types import MappingProxyType
 from typing import Literal, get_args
 
 RUBRIC_VERSION = "1.0"
-SCHEMA_VERSION = "1.0"
+SCHEMA_VERSION = "1.1"  # newest record schema; "1.0" records remain valid
+SUPPORTED_SCHEMA_VERSIONS: tuple[str, ...] = ("1.0", "1.1")
 
 SCORE_MIN = 1
 SCORE_MAX = 5
@@ -85,3 +86,10 @@ ANNOTATION_SOURCES: tuple[str, ...] = get_args(AnnotationSource)
 
 Winner = Literal["A", "B", "tie"]
 WINNERS: tuple[str, ...] = get_args(Winner)
+
+Difficulty = Literal["easy", "moderate", "challenging"]
+DIFFICULTIES: tuple[str, ...] = get_args(Difficulty)
+
+# How an authentic model response was obtained (schema 1.1).
+CollectionMethod = Literal["web_chat", "api", "local_model", "other"]
+COLLECTION_METHODS: tuple[str, ...] = get_args(CollectionMethod)

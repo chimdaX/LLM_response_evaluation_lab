@@ -1,0 +1,13 @@
+{
+  "schema_version": "1.1",
+  "response_id": "<prompt ID>-<A or B>, e.g. B001-A",
+  "prompt_id": "<prompt ID, e.g. B001>",
+  "candidate_label": "<A | B>",
+  "response_text": "<the model's complete first response, unedited>",
+  "model_name": "<model name exactly as shown by the interface or API>",
+  "provider": "<provider or product, e.g. OpenAI ChatGPT>",
+  "collection_method": "<web_chat | api | local_model | other>",
+  "generation_settings": null,
+  "provenance": "model_output",
+  "generated_at": "<YYYY-MM-DD>"
+}

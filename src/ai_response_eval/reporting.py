@@ -77,6 +77,17 @@ def _counts(inputs: ReportInputs) -> dict[str, int]:
     }
 
 
+def _completeness(dataset: Dataset) -> dict[str, int]:
+    evaluated = {e.response_id for e in dataset.evaluations}
+    answered = {r.prompt_id for r in dataset.responses}
+    return {
+        "responses_without_evaluation": sum(
+            r.response_id not in evaluated for r in dataset.responses
+        ),
+        "prompts_without_responses": sum(p.prompt_id not in answered for p in dataset.prompts),
+    }
+
+
 def _provenance(dataset: Dataset) -> dict[str, dict[str, int]]:
     return {
         "responses_by_provenance": dict(
@@ -188,6 +199,7 @@ def metadata(inputs: ReportInputs) -> dict[str, Any]:
         },
         "counts": _counts(inputs),
         "provenance": _provenance(inputs.dataset),
+        "completeness": _completeness(inputs.dataset),
         "genuine_human_evaluations": human_evals,
         "genuine_human_preferences": human_prefs,
     }
@@ -226,7 +238,13 @@ def summary_markdown(inputs: ReportInputs) -> str:
     out: list[str] = ["# Evaluation Summary", ""]
 
     # --- data status banner: what this report is (and is not) evidence of --------------
-    if human_evals == 0 and human_prefs == 0:
+    completeness = _completeness(d)
+    if not d.evaluations and not d.preferences:
+        out.append(
+            "> **No annotations yet.** This dataset has no evaluations or pairwise decisions, "
+            "so there are no results to report."
+        )
+    elif human_evals == 0 and human_prefs == 0:
         out.append(
             "> **Demonstration data only.** None of the evaluations or preferences in this report "
             "are genuine human benchmark annotations (all are `illustrative_example`). The numbers "
@@ -244,6 +262,15 @@ def summary_markdown(inputs: ReportInputs) -> str:
             f"> {synthetic_responses} of {counts['candidate_responses']} candidate responses are "
             "`synthetic_example` texts written to illustrate the framework, not real model "
             "outputs.",
+        ]
+    if completeness["responses_without_evaluation"] or completeness["prompts_without_responses"]:
+        out += [
+            ">",
+            f"> **Incomplete annotation:** {completeness['responses_without_evaluation']} of "
+            f"{counts['candidate_responses']} candidate responses have no evaluation and "
+            f"{completeness['prompts_without_responses']} of {counts['prompts']} prompts have no "
+            "responses. Aggregates describe only the annotated subset; they are not benchmark "
+            "results.",
         ]
     if counts["scored_evaluations"] < SMALL_SAMPLE_THRESHOLD:
         out += [

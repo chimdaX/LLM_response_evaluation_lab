@@ -1,26 +1,49 @@
-"""Command-line interface: ``ai-eval validate | score | compare | report``.
+"""Command-line interface for ``ai-eval``.
+
+Analysis commands: ``validate``, ``score``, ``compare``, ``report``, ``status``.
+Benchmark-building commands: ``collect``, ``annotate``, ``annotate-pair``.
 
 Exit codes:
-    0  success
-    1  the input data failed validation
-    2  usage, configuration or file-system error (argparse also uses 2)
+    0    success
+    1    the input data failed validation
+    2    usage, configuration or file-system error (argparse also uses 2)
+    130  an interactive session was interrupted (drafts are kept)
 
-No command makes network calls, and no command modifies files in ``--data-dir``.
+No command makes network calls. Analysis commands never modify ``--data-dir``; the
+benchmark-building commands only *append* new records to it (plus working drafts in
+``--data-dir/.drafts``) and never change or delete existing records.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from collections.abc import Sequence
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 from ai_response_eval import __version__
+from ai_response_eval.annotation import (
+    AnnotationError,
+    annotate_pair,
+    annotate_response,
+    confirm_attestation,
+    evaluation_queue,
+    preference_queue,
+)
+from ai_response_eval.collection import (
+    CANDIDATE_LABELS,
+    ResponseMetadata,
+    collect_interactive,
+    import_response,
+)
 from ai_response_eval.comparisons import build_pairwise_rows, summarize_pairwise
+from ai_response_eval.interactive import Console, TerminalConsole, ask_yes_no
+from ai_response_eval.progress import compute_progress, format_progress
 from ai_response_eval.reporting import ReportInputs, ReportWriteError, build_reports, write_reports
-from ai_response_eval.rubric import DIMENSIONS
+from ai_response_eval.rubric import COLLECTION_METHODS, DIMENSIONS
 from ai_response_eval.scoring import (
     ConfigError,
     ScoringConfig,
@@ -28,11 +51,13 @@ from ai_response_eval.scoring import (
     load_scoring_config,
     score_evaluations,
 )
+from ai_response_eval.storage import DraftStore, StorageError
 from ai_response_eval.validation import ValidationResult, validate_data_dir
 
 EXIT_OK = 0
 EXIT_INVALID_DATA = 1
 EXIT_USAGE = 2
+EXIT_INTERRUPTED = 130
 
 DEFAULT_CONFIG = Path("config/scoring.json")
 DEFAULT_RUBRIC = Path("rubrics/rubric_v1.md")
@@ -213,6 +238,210 @@ def cmd_report(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def cmd_status(args: argparse.Namespace) -> int:
+    result = _load_valid(args.data_dir)
+    if result is None:
+        return EXIT_INVALID_DATA
+    print(format_progress(compute_progress(result.dataset, DraftStore(args.data_dir))))
+    return EXIT_OK
+
+
+_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
+
+
+def _check_reviewer(reviewer_id: str) -> bool:
+    if _ID_PATTERN.match(reviewer_id) and len(reviewer_id) <= 64:
+        return True
+    print(
+        "ERROR: --reviewer-id must start with a letter or digit and contain only letters, "
+        "digits, '_', '.' or '-'",
+        file=sys.stderr,
+    )
+    return False
+
+
+def _interrupted() -> int:
+    print(
+        "\nInterrupted. Answers given so far are kept in a draft; run the same command to resume.",
+        file=sys.stderr,
+    )
+    return EXIT_INTERRUPTED
+
+
+def cmd_collect(args: argparse.Namespace) -> int:
+    result = _load_valid(args.data_dir)
+    if result is None:
+        return EXIT_INVALID_DATA
+    console: Console = args.console
+    if args.text_file is not None:
+        # Non-interactive import: every piece of provenance must be given explicitly.
+        missing = [
+            flag
+            for flag, value in (
+                ("--prompt-id", args.prompt_id),
+                ("--label", args.label),
+                ("--model-name", args.model_name),
+                ("--provider", args.provider),
+                ("--method", args.method),
+                ("--generated-at", args.generated_at),
+            )
+            if value is None
+        ]
+        if missing:
+            print(f"ERROR: --text-file also requires {', '.join(missing)}", file=sys.stderr)
+            return EXIT_USAGE
+        try:
+            text = args.text_file.read_text(encoding="utf-8-sig")
+            generated_at = date.fromisoformat(args.generated_at)
+            meta = ResponseMetadata(
+                args.model_name, args.provider, args.method, generated_at, args.settings
+            )
+            record = import_response(
+                args.data_dir,
+                result.dataset,
+                args.prompt_id,
+                args.label,
+                text,
+                meta,
+                today=args.today,
+            )
+        except (OSError, ValueError) as exc:  # CollectionError is a ValueError
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return EXIT_USAGE
+        print(f"Imported {record['response_id']} into {args.data_dir / 'responses.json'}.")
+        return EXIT_OK
+
+    defaults = {
+        "model_name": args.model_name,
+        "provider": args.provider,
+        "collection_method": args.method,
+        "generation_settings": args.settings,
+    }
+    try:
+        count = collect_interactive(
+            console,
+            args.data_dir,
+            result.dataset,
+            today=args.today,
+            prompt_id=args.prompt_id,
+            label=args.label,
+            defaults=defaults,
+        )
+    except (KeyboardInterrupt, EOFError):
+        print("\nInterrupted; responses imported before this point are saved.", file=sys.stderr)
+        return EXIT_INTERRUPTED
+    console.say(f"\n{count} response(s) imported this session.")
+    return EXIT_OK
+
+
+def cmd_annotate(args: argparse.Namespace) -> int:
+    if not _check_reviewer(args.reviewer_id):
+        return EXIT_USAGE
+    result = _load_valid(args.data_dir)
+    if result is None:
+        return EXIT_INVALID_DATA
+    console: Console = args.console
+    dataset, drafts = result.dataset, DraftStore(args.data_dir)
+    if args.response_id is not None:
+        response = dataset.responses_by_id.get(args.response_id)
+        if response is None:
+            print(f"ERROR: unknown response_id '{args.response_id}'", file=sys.stderr)
+            return EXIT_USAGE
+        queue = [response]
+    else:
+        queue = evaluation_queue(dataset, args.reviewer_id, drafts)
+    if not queue:
+        console.say(
+            f"Nothing to annotate: {args.reviewer_id} has evaluated every collected response."
+        )
+        return EXIT_OK
+    try:
+        if not confirm_attestation(console):
+            console.say("Not confirmed; nothing was recorded.")
+            return EXIT_USAGE
+        saved = 0
+        for i, response in enumerate(queue):
+            console.say(f"\n===== {i + 1} of {len(queue)} remaining for {args.reviewer_id} =====")
+            record = annotate_response(
+                console,
+                args.data_dir,
+                dataset,
+                response,
+                args.reviewer_id,
+                today=args.today,
+                drafts=drafts,
+                allow_repeat=args.repeat,
+            )
+            if record is None:
+                break
+            saved += 1
+            if i + 1 < len(queue) and not ask_yes_no(
+                console, "Continue with the next response?", default=True
+            ):
+                break
+    except (KeyboardInterrupt, EOFError):
+        return _interrupted()
+    except (AnnotationError, StorageError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return EXIT_USAGE
+    console.say(
+        f"\n{saved} evaluation(s) saved this session. Run 'ai-eval status --data-dir "
+        f"{args.data_dir}' to see progress."
+    )
+    return EXIT_OK
+
+
+def cmd_annotate_pair(args: argparse.Namespace) -> int:
+    if not _check_reviewer(args.reviewer_id):
+        return EXIT_USAGE
+    result = _load_valid(args.data_dir)
+    if result is None:
+        return EXIT_INVALID_DATA
+    console: Console = args.console
+    dataset, drafts = result.dataset, DraftStore(args.data_dir)
+    queue = preference_queue(dataset, args.reviewer_id, drafts)
+    if args.prompt_id is not None:
+        queue = [p for p in queue if p.prompt.prompt_id == args.prompt_id]
+    if not queue:
+        console.say(
+            "No pairs to compare: either both candidates are not collected yet, or "
+            f"{args.reviewer_id} has already recorded a preference."
+        )
+        return EXIT_OK
+    try:
+        if not confirm_attestation(console):
+            console.say("Not confirmed; nothing was recorded.")
+            return EXIT_USAGE
+        saved = 0
+        for i, pair in enumerate(queue):
+            console.say(
+                f"\n===== {i + 1} of {len(queue)} pairs remaining for {args.reviewer_id} ====="
+            )
+            record = annotate_pair(
+                console,
+                args.data_dir,
+                dataset,
+                pair,
+                args.reviewer_id,
+                today=args.today,
+                drafts=drafts,
+            )
+            if record is None:
+                break
+            saved += 1
+            if i + 1 < len(queue) and not ask_yes_no(
+                console, "Continue with the next pair?", default=True
+            ):
+                break
+    except (KeyboardInterrupt, EOFError):
+        return _interrupted()
+    except (AnnotationError, StorageError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return EXIT_USAGE
+    console.say(f"\n{saved} preference(s) saved this session.")
+    return EXIT_OK
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="ai-eval",
@@ -267,15 +496,65 @@ def build_parser() -> argparse.ArgumentParser:
         "--overwrite", action="store_true", help="replace existing report files in --output-dir"
     )
     p.set_defaults(func=cmd_report)
+
+    p = sub.add_parser("status", help="show benchmark collection and annotation progress")
+    add_data_dir(p)
+    p.set_defaults(func=cmd_status)
+
+    p = sub.add_parser(
+        "collect",
+        help="import authentic model responses (interactive, or one file with --text-file)",
+    )
+    add_data_dir(p)
+    p.add_argument("--prompt-id", help="only this prompt's pending slots")
+    p.add_argument("--label", choices=CANDIDATE_LABELS, help="only this candidate slot")
+    p.add_argument("--model-name", help="model name exactly as shown by the interface or API")
+    p.add_argument("--provider", help="provider or product, e.g. 'OpenAI ChatGPT'")
+    p.add_argument("--method", choices=COLLECTION_METHODS, help="how the response was obtained")
+    p.add_argument("--generated-at", help="date the response was generated (YYYY-MM-DD)")
+    p.add_argument("--settings", help="generation settings, only if actually known")
+    p.add_argument(
+        "--text-file",
+        type=Path,
+        help="import this file non-interactively (requires all metadata flags above)",
+    )
+    p.set_defaults(func=cmd_collect)
+
+    p = sub.add_parser("annotate", help="evaluate collected responses against the rubric")
+    add_data_dir(p)
+    p.add_argument("--reviewer-id", required=True, help="your stable reviewer ID, e.g. reviewer_01")
+    p.add_argument("--response-id", help="evaluate this response instead of the next in the queue")
+    p.add_argument(
+        "--repeat",
+        action="store_true",
+        help="allow a second evaluation of a response you already evaluated (consistency check)",
+    )
+    p.set_defaults(func=cmd_annotate)
+
+    p = sub.add_parser("annotate-pair", help="record A/B/tie preferences for collected pairs")
+    add_data_dir(p)
+    p.add_argument("--reviewer-id", required=True, help="your stable reviewer ID, e.g. reviewer_01")
+    p.add_argument(
+        "--prompt-id", help="compare this prompt's pair instead of the next in the queue"
+    )
+    p.set_defaults(func=cmd_annotate_pair)
     return parser
 
 
-def main(argv: Sequence[str] | None = None) -> int:
+def main(
+    argv: Sequence[str] | None = None,
+    *,
+    console: Console | None = None,
+    today: date | None = None,
+) -> int:
+    """Entry point. ``console`` and ``today`` are injectable so tests are deterministic."""
     # Avoid UnicodeEncodeError on legacy Windows consoles when data contains non-ASCII text.
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(errors="replace")
     args = build_parser().parse_args(argv)
+    args.console = console or TerminalConsole()
+    args.today = today or date.today()
     return args.func(args)
 
 

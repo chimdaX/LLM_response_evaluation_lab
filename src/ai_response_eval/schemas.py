@@ -33,6 +33,8 @@ from ai_response_eval.rubric import (
     SCORE_MAX,
     SCORE_MIN,
     AnnotationSource,
+    CollectionMethod,
+    Difficulty,
     Domain,
     EvidenceStatus,
     Provenance,
@@ -69,7 +71,16 @@ Score = Annotated[int, Field(ge=SCORE_MIN, le=SCORE_MAX, strict=True)]
 class _Record(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    schema_version: Literal["1.0"]
+    # 1.1 adds optional prompt metadata and response collection metadata; nothing was
+    # removed or redefined, so every valid 1.0 record is still valid.
+    schema_version: Literal["1.0", "1.1"]
+
+    def _require_v11_for(self, *fields: str) -> None:
+        """Reject 1.1-only fields on records that declare schema 1.0."""
+        if self.schema_version == "1.0":
+            used = [f for f in fields if f in self.model_fields_set]
+            if used:
+                raise ValueError(f"field(s) {', '.join(used)} require schema_version '1.1'")
 
 
 class Prompt(_Record):
@@ -79,6 +90,14 @@ class Prompt(_Record):
     constraints: list[NonEmptyText] = Field(default_factory=list)
     reference_notes: str | None = None
     created_at: IsoDate
+    # Schema 1.1 (optional): intended difficulty and what the prompt is designed to test.
+    difficulty: Difficulty | None = None
+    evaluation_objectives: list[NonEmptyText] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _check_version_fields(self) -> Prompt:
+        self._require_v11_for("difficulty", "evaluation_objectives")
+        return self
 
 
 class CandidateResponse(_Record):
@@ -89,9 +108,15 @@ class CandidateResponse(_Record):
     model_name: NonEmptyText
     provenance: Provenance
     generated_at: IsoDate | None = None
+    # Schema 1.1 (optional): how an authentic response was collected. Record only what is
+    # actually known; leave a field null rather than guessing (e.g. an unexposed temperature).
+    provider: NonEmptyText | None = None
+    collection_method: CollectionMethod | None = None
+    generation_settings: NonEmptyText | None = None
 
     @model_validator(mode="after")
     def _check_provenance(self) -> CandidateResponse:
+        self._require_v11_for("provider", "collection_method", "generation_settings")
         # Guard against attributing hand-written examples to a real model and vice versa.
         if self.provenance == "synthetic_example" and self.model_name != EXAMPLE_MODEL_NAME:
             raise ValueError(
