@@ -10,7 +10,7 @@ values, error rates, or CI results are reported here until they actually exist.
 |---|---|
 | 1. Foundation | **Complete** (v0.1.0) |
 | 2. Evaluation workflow | Tooling complete (v0.3.0, including rationale checks and correction history); collection and annotation in progress |
-| 3. GitHub-ready release | Not started (MIT license added) |
+| 3. GitHub-ready release | Implemented in v0.4.0; first GitHub-hosted CI run and the release tag are pending |
 | 4. Research extension | Not started |
 
 ## Phase 1: Foundation (complete)
@@ -43,18 +43,19 @@ values, error rates, or CI results are reported here until they actually exist.
 
 ## Phase 3: GitHub-ready release
 
-- [ ] GitHub Actions workflow, run on pushes and pull requests to `main`:
-  1. check out the repository and set up a supported Python version;
-  2. install the package with dev dependencies;
-  3. run `ruff check .` and `python -m pytest`;
-  4. run `ai-eval validate --data-dir data/examples`;
-  5. generate reports into a temporary directory as a smoke test;
-  6. optionally upload the generated reports as build artifacts.
-- [ ] An example CLI transcript built from real computed output.
+- [x] GitHub Actions workflow (`.github/workflows/ci.yml`):
+  - lint, tests, data validation, CLI smoke tests, and report generation on Ubuntu and
+    Windows (Python 3.11–3.13) and macOS (3.12);
+  - a package build and a clean-install check of the wheel.
+- [ ] First green CI run on GitHub (required before a release).
+- [x] Public installation: built-in defaults and example data in the wheel, `ai-eval init`,
+      and a clean-install verification script.
+- [x] Example CLI transcripts built from real computed output ([QUICKSTART.md](QUICKSTART.md)).
 - [ ] Screenshots or charts, added only once they exist.
-- [x] LICENSE (MIT).
-- [ ] Contribution guidance.
-- [ ] Tag an initial release.
+- [x] LICENSE (MIT), [CONTRIBUTING.md](../CONTRIBUTING.md), [CHANGELOG.md](../CHANGELOG.md),
+      and issue and pull-request templates.
+- [x] Release checklist and process ([RELEASING.md](RELEASING.md)).
+- [ ] Tag an initial release (after CI passes on GitHub).
 
 CI should fail on invalid inputs, broken tests, or lint errors. It should **not** fail on human
 quality-score thresholds until a stable, explicitly versioned benchmark and decision policy
@@ -76,7 +77,7 @@ exist. Any later regression thresholds must use a documented baseline and explai
 | M2: Human evaluation | Annotation workflow and benchmark | At least 20 genuinely reviewed items with rationales | Workflow done; reviews pending |
 | M3: Reporting | CSV, JSON, Markdown outputs | Reports accurately summarize valid scored examples | Done (first version) |
 | M4: Comparisons | Pairwise preference workflow | A/B/tie decisions with reasons; position labels not treated as quality evidence | Done (first version) |
-| M5: Quality engineering | Tests, lint, GitHub Actions | All automated checks pass on a clean clone in CI | Tests and lint done; CI pending |
+| M5: Quality engineering | Tests, lint, GitHub Actions | All automated checks pass on a clean clone in CI | Tests, lint, and workflow done; first GitHub-hosted run pending |
 | M6: Expanded dataset | Multiple domains and error types | 100–200 prompts as review quality allows | Pending |
 | M7: Optional AI judge | Provider-neutral judge interface | Human agreement and disagreement analysis, excluding failed calls | Pending |
 

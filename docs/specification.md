@@ -4,7 +4,7 @@ This document is the detailed technical reference for AI Response Evaluation Lab
 the design goals, scope, rubric and scoring policy, data model, validation rules, report
 contents, testing approach, and annotation methodology.
 
-It describes the behaviour of **version 0.3.0**. Items marked *planned* are not implemented yet;
+It describes the behaviour of **version 0.4.0**. Items marked *planned* are not implemented yet;
 see [`roadmap.md`](roadmap.md).
 
 ## Contents
@@ -51,7 +51,7 @@ Design principles:
 
 ## 2. Scope
 
-### Implemented (v0.3.0)
+### Implemented (v0.4.0)
 
 - JSON input validation, both per record and across files.
 - A versioned evaluation rubric with anchored scoring definitions.
@@ -450,6 +450,7 @@ Reporting rules:
 
 | Command | Purpose |
 |---|---|
+| `ai-eval init DIR [--example]` | Create the four data files, `templates/` and `reference/` (rubric and scoring config) in `DIR`, empty or with the synthetic example dataset; never overwrites |
 | `ai-eval validate --data-dir DIR [--strict]` | Validate schemas and cross-file references |
 | `ai-eval score --data-dir DIR [--config FILE] [--json]` | Print overall scores, scored-dimension counts, and review flags |
 | `ai-eval compare --data-dir DIR [--config FILE]` | Print human preferences with reasons, alongside the score-based suggestion |
@@ -461,7 +462,14 @@ Reporting rules:
 
 Behaviour:
 
-- `--help` is available for every command.
+- `--help` is available for every command. `ai-eval` without a command prints the help with a
+  quick start and exits with code 2.
+- `--config` and `--rubric` default to the **built-in** copies in
+  `src/ai_response_eval/resources/`. These are byte-identical to `config/scoring.json` and
+  `rubrics/rubric_v1.md`, which a test enforces. The defaults therefore do not depend on the
+  current directory.
+- A `--data-dir` that does not exist, or is a file, is reported before any work is done (exit
+  code 2), with the `ai-eval init` command that would create it.
 - Commands other than `validate` refuse to run on invalid data.
 - No command makes network calls. The analysis commands (`validate`, `score`, `compare`,
   `report`, `status`) never modify `--data-dir`. `collect`, `annotate`, and `annotate-pair`
@@ -469,7 +477,8 @@ Behaviour:
   `--data-dir/.drafts/`. They never change or delete existing records.
 - Output is sorted by ID for deterministic diffs.
 - Exit codes: `0` success; `1` invalid data (or warnings under `--strict`); `2` usage,
-  configuration, or file-system error; `130` interactive session interrupted (drafts kept).
+  configuration, or file-system error (including a missing `--data-dir`, changed in 0.4.0);
+  `130` interactive session interrupted (drafts kept).
 
 ## 12. Testing and quality gates
 
@@ -490,9 +499,13 @@ paid APIs, the current date, or model output.
 | `tests/test_rationale_quality.py` | Score-only, placeholder, generic and repeated rationales; short specific text passing; validation warnings and `--strict` |
 | `tests/test_revisions.py` | Schema 1.2 rules, revision chains, branching/cycle/reference errors, active-only scoring and reporting, and the interactive `--revise` flow (resume, refusals, keeping or changing scores) |
 | `tests/test_cli_benchmark.py` | `status`, `collect`, `annotate`, `annotate-pair` end to end, including attestation, interruption, and reports on a partial benchmark |
+| `tests/test_packaging.py` | Package metadata and entry point, built-in resources identical to repository copies, `init`, use from outside the repository, argument errors, missing paths, spaces/Unicode/CRLF paths and files, mixed schema versions |
 
-Planned CI (GitHub Actions) will run Ruff, pytest, `ai-eval validate`, and a report smoke test.
-CI will fail on invalid inputs, broken tests, or lint errors. It will not fail on human quality
+**CI** (`.github/workflows/ci.yml`) runs Ruff, pytest, data validation, CLI smoke tests, and
+report generation on Ubuntu and Windows (Python 3.11–3.13) and macOS (3.12). A separate job
+builds the sdist and wheel and runs `scripts/verify_install.py`, which installs the wheel into a
+fresh virtual environment and exercises the CLI from an empty directory.
+CI fails on invalid inputs, broken tests, or lint errors. It will not fail on human quality
 score thresholds until a stable, versioned benchmark and decision policy exist.
 
 ## 13. Human annotation methodology
@@ -517,7 +530,7 @@ agreement for pairwise judgments. Agreement does not prove factual correctness.
 | Component | Choice | Reason |
 |---|---|---|
 | Language | Python 3.11+ | |
-| Packaging | `pyproject.toml`, `src/` layout, setuptools | Standard, installable with `pip install -e` |
+| Packaging | `pyproject.toml`, `src/` layout, setuptools; distribution `llm-response-evaluation-lab` | Standard, installable with `pip install -e .` or from the wheel; defaults ship as package data |
 | Schemas | Pydantic v2 | Typed validation with precise error locations; the only runtime dependency |
 | CLI | `argparse` (standard library) | No extra dependency |
 | Annotation interface | Interactive terminal prompts (standard library) | Works anywhere Python runs; no GUI dependency; fully testable with scripted input |

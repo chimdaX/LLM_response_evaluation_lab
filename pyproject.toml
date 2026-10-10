@@ -3,13 +3,29 @@ requires = ["setuptools>=77", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "ai-response-evaluation-lab"
+name = "llm-response-evaluation-lab"
 dynamic = ["version"]
 description = "A reproducible, human-first framework for evaluating AI-generated answers."
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
 license-files = ["LICENSE"]
+authors = [{ name = "Aaron Chimda" }]
+keywords = ["llm", "evaluation", "rubric", "human-annotation", "ai-safety", "benchmark"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+# Runtime needs only Pydantic. Test, lint and build tools live in the optional "dev" extra.
 dependencies = [
     "pydantic>=2.6,<3",
 ]
@@ -18,7 +34,14 @@ dependencies = [
 dev = [
     "pytest>=8",
     "ruff>=0.6",
+    "build>=1.2",
 ]
+
+[project.urls]
+Homepage = "https://github.com/chimdaX/LLM_response_evaluation_lab"
+Documentation = "https://github.com/chimdaX/LLM_response_evaluation_lab/blob/main/docs/QUICKSTART.md"
+Issues = "https://github.com/chimdaX/LLM_response_evaluation_lab/issues"
+Changelog = "https://github.com/chimdaX/LLM_response_evaluation_lab/blob/main/CHANGELOG.md"
 
 [project.scripts]
 ai-eval = "ai_response_eval.cli:main"
@@ -29,6 +52,11 @@ version = { attr = "ai_response_eval.__version__" }
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+# Default config, rubric, example dataset and templates ship inside the package so the
+# installed CLI works from any directory (see src/ai_response_eval/resources/__init__.py).
+"ai_response_eval.resources" = ["*.json", "*.md", "examples/*.json", "templates/*.json"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"
@@ -36,7 +64,7 @@ addopts = "-ra"
 [tool.ruff]
 line-length = 100
 target-version = "py311"
-src = ["src", "tests"]
+src = ["src", "tests", "scripts"]
 
 [tool.ruff.lint]
 select = ["E", "W", "F", "I", "B", "UP", "SIM", "RUF"]

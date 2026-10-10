@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Quick Start guide
+    url: https://github.com/chimdaX/LLM_response_evaluation_lab/blob/main/docs/QUICKSTART.md
+    about: Installation and first steps

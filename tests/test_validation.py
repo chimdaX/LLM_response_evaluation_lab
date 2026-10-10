@@ -184,7 +184,9 @@ def test_review_before_prompt_creation_warns(records: Records, write_dataset: Wr
 
 
 def test_secret_like_strings_rejected(records: Records, write_dataset: WriteDataset) -> None:
-    records["responses"][0]["response_text"] = "Use key sk-abcdefghijklmnopqrstuvwx to call it."
+    # Built at runtime so no credential-shaped literal is committed (avoids secret scanners).
+    fake_key = "sk-" + "abcdefghij" * 2
+    records["responses"][0]["response_text"] = f"Use key {fake_key} to call it."
     result = validate_data_dir(write_dataset(records))
     assert any("API key" in i.message and i.file == "responses.json" for i in result.errors)
 
