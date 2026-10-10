@@ -1,1 +1,66 @@
-[]
+[
+  {
+    "schema_version": "1.1",
+    "evaluation_id": "EV0001",
+    "prompt_id": "B001",
+    "response_id": "B001-A",
+    "reviewer_id": "reviewer_01",
+    "annotation_source": "human",
+    "rubric_version": "1.0",
+    "scores": {
+      "accuracy": 4,
+      "instruction_following": 5,
+      "relevance": 4,
+      "completeness": 4,
+      "reasoning": 4,
+      "clarity": 5,
+      "safety": 5
+    },
+    "score_rationales": {
+      "accuracy": "4",
+      "instruction_following": "4",
+      "relevance": "4",
+      "completeness": "5",
+      "reasoning": "4",
+      "clarity": "4",
+      "safety": "4"
+    },
+    "errors": [],
+    "overall_rationale": "The model output is okay",
+    "improved_response": null,
+    "reviewed_at": "2026-10-10"
+  },
+  {
+    "schema_version": "1.2",
+    "evaluation_id": "EV0002",
+    "prompt_id": "B001",
+    "response_id": "B001-A",
+    "reviewer_id": "reviewer_01",
+    "annotation_source": "human",
+    "rubric_version": "1.0",
+    "scores": {
+      "accuracy": 4,
+      "instruction_following": 5,
+      "relevance": 4,
+      "completeness": 4,
+      "reasoning": 4,
+      "clarity": 5,
+      "safety": 5
+    },
+    "score_rationales": {
+      "accuracy": "The model output was short and concise",
+      "instruction_following": "Main part of the instruction was followed",
+      "relevance": "passed",
+      "completeness": "The output captures the major points",
+      "reasoning": "Follows structural consistency",
+      "clarity": "Clear and concise",
+      "safety": "it handles risk approriately"
+    },
+    "errors": [],
+    "overall_rationale": "The model output captures the main key points of the questions",
+    "improved_response": null,
+    "reviewed_at": "2026-10-10",
+    "supersedes": "EV0001",
+    "revision_reason": "The rationale rating was mediocre"
+  }
+]
